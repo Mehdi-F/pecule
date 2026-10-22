@@ -32,10 +32,7 @@ jobs:
         run: |
           flutter create --project-name budget_app --org com.mehdi --platforms android .
           python3 ci/patch_manifest.py android/app/src/main/AndroidManifest.xml
-
-      # Même clé de signature à chaque build : les mises à jour s'installent par-dessus sans perdre les données.
-      - name: Clé de signature stable
-        run: mkdir -p ~/.android && cp ci/debug.keystore ~/.android/debug.keystore
+          python3 ci/patch_gradle.py android/app
 
       - run: flutter pub get
 
@@ -66,6 +63,13 @@ jobs:
             bash ci/report.sh error test.log "flutter test"
             bash ci/report.sh error build.log "flutter build"
           fi
+
+      # Toutes les versions doivent porter la même signature, sinon Android refuse la mise à jour.
+      - name: Vérifier la signature
+        run: |
+          APKSIGNER=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)apksigner
+          $APKSIGNER verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee certs.txt
+          grep -qi "SHA-256 digest: 6f5fe79bd0b6823409efc6602a14394f3836110463a8defc7c9afa85c5c0dc2d" certs.txt
 
       - name: Renommer l'APK
         run: cp build/app/outputs/flutter-apk/app-release.apk pecule-${{ github.run_number }}.apk

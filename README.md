@@ -8,7 +8,7 @@ Toutes les données restent sur le téléphone (SQLite). Pas de serveur, pas de 
 
 Chaque push sur `main` lance le workflow **Build APK** (onglet *Actions*). À la fin, l'APK est publiée dans **Releases** (`pecule-N.apk`) : ouvre la release depuis le téléphone, télécharge l'APK et installe-la (autoriser l'installation depuis le navigateur la première fois).
 
-Les builds sont toutes signées avec la même clé (`ci/debug.keystore`), donc une nouvelle version s'installe par-dessus l'ancienne sans perdre les données. Garde le repo privé.
+Les builds sont toutes signées avec la même clé (`ci/debug.keystore`, imposée par `ci/patch_gradle.py` et vérifiée en CI), donc une nouvelle version s'installe par-dessus l'ancienne sans perdre les données. Garde le repo privé.
 
 ## Importer ses opérations
 
