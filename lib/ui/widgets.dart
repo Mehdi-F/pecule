@@ -269,12 +269,34 @@ void toast(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message), behavior: SnackBarBehavior.floating));
 }
 
+/// Logo de l'app (même image que l'icône du lanceur).
+class AppLogo extends StatelessWidget {
+  final double size;
+  const AppLogo({super.key, this.size = 72});
+
+  @override
+  Widget build(BuildContext context) => Image.asset(
+        'assets/icon/icon.png',
+        width: size,
+        height: size,
+        filterQuality: FilterQuality.medium,
+      );
+}
+
 class EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String message;
   final Widget? action;
-  const EmptyState({super.key, required this.icon, required this.title, required this.message, this.action});
+  final Widget? leading;
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+    this.leading,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -284,7 +306,7 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: AppColors.primary),
+            leading ?? Icon(icon, size: 56, color: AppColors.primary),
             const SizedBox(height: 16),
             Text(title, textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),

@@ -84,6 +84,15 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
               ]),
+              const SizedBox(height: 12),
+              const Column(
+                children: [
+                  AppLogo(size: 48),
+                  SizedBox(height: 8),
+                  Text('Pécule', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.ink)),
+                  Text('Tes données restent sur ce téléphone.', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                ],
+              ),
             ],
           ),
         );

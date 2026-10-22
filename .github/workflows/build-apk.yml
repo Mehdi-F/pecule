@@ -35,6 +35,9 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Icône de l'app
+        run: dart run flutter_launcher_icons
+
       - name: Analyse
         run: |
           set -o pipefail

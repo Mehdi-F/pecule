@@ -30,7 +30,8 @@ class ActivitiesScreen extends StatelessWidget {
           body: days.isEmpty
               ? EmptyState(
                   icon: Icons.account_balance_wallet_outlined,
-                  title: 'Aucune opération',
+                  leading: const AppLogo(size: 96),
+                  title: 'Bienvenue dans Pécule',
                   message: 'Importe un relevé CSV ou OFX exporté depuis ton espace LCL pour commencer.',
                   action: FilledButton.icon(
                     onPressed: () => runImport(context),
