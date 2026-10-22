@@ -652,7 +652,8 @@ class Store extends ChangeNotifier {
         try {
           raw = await client.transactions(uid, now.subtract(const Duration(days: 365)));
         } on EbException catch (e) {
-          if (e.needsReconnect) rethrow;
+          // Seulement si la banque refuse un an d'historique (pas sur une coupure réseau).
+          if (e.needsReconnect || e.isNetwork) rethrow;
           raw = await client.transactions(uid, now.subtract(const Duration(days: 89)));
         }
       } else {

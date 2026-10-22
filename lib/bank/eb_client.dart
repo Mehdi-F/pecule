@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show SocketException;
 
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +11,9 @@ class EbException implements Exception {
   final String message;
   final int? status;
   const EbException(this.message, {this.status});
+
+  /// Problème réseau (pas de réponse HTTP) : réessayer suffit en général.
+  bool get isNetwork => status == null;
 
   /// Session expirée ou révoquée : il faut se reconnecter à la banque.
   bool get needsReconnect => status == 401 || status == 403 || status == 422;
@@ -44,6 +48,16 @@ class EbClient {
   }
 
   Future<dynamic> _req(String method, String path, {Map<String, String>? query, Object? body}) async {
+    try {
+      return await _send(method, path, query: query, body: body);
+    } on EbException catch (e) {
+      if (!e.isNetwork) rethrow;
+      await Future<void>.delayed(const Duration(seconds: 2));
+      return _send(method, path, query: query, body: body);
+    }
+  }
+
+  Future<dynamic> _send(String method, String path, {Map<String, String>? query, Object? body}) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
     final headers = {
       'Authorization': 'Bearer ${_token()}',
@@ -64,6 +78,10 @@ class EbClient {
       r = await f.timeout(const Duration(seconds: 45));
     } on TimeoutException {
       throw const EbException('La banque ne répond pas, réessaie dans un moment.');
+    } on http.ClientException catch (e) {
+      throw EbException('Pas de connexion à Internet (ou réseau instable). Réessaie dans un instant.\n\n($e)');
+    } on SocketException catch (e) {
+      throw EbException('Pas de connexion à Internet (ou réseau instable). Réessaie dans un instant.\n\n($e)');
     } catch (e) {
       throw EbException('Connexion impossible ($e).');
     }
