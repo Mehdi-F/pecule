@@ -33,6 +33,7 @@ lib/
   importer.dart      parsing CSV / OFX (pur Dart, testé)
   lcl_pdf.dart       lecture des relevés PDF LCL à partir des mots positionnés
   pdf_words.dart     extraction du texte PDF (syncfusion_flutter_pdf, licence communautaire)
+  bank/              client Enable Banking (JWT RS256) et conversion des transactions
   categorizer.dart   catégories et mots-clés par défaut
   store.dart         SQLite + état de l'app (ChangeNotifier)
   ui/screens/        Activités, Analyse, Réglages, fiche opération
@@ -41,6 +42,14 @@ test/                tests du parsing (dont un relevé LCL fictif) et de la cat�
 
 Le dossier `android/` est généré par `flutter create` dans la CI. En local : `flutter create --project-name budget_app --org com.mehdi --platforms android .` puis `flutter run`.
 
-## Étape suivante possible
+## Synchro bancaire (Enable Banking)
 
-Synchronisation automatique via Enable Banking (API DSP2, gratuite en mode restreint pour ses propres comptes).
+Pécule peut récupérer les opérations directement auprès de la banque via l'API DSP2 d'[Enable Banking](https://enablebanking.com), gratuite en mode restreint pour ses propres comptes.
+
+1. Control Panel Enable Banking → *API applications* : application **Production**, redirect URL `https://localhost/pecule`. Le navigateur télécharge la clé privée `<application-id>.pem`.
+2. *Activate by linking accounts* sur la fiche de l'application (lier son compte LCL).
+3. Dans Pécule : *Réglages → Synchro bancaire* → importer le `.pem`, puis « Connecter ma banque ».
+
+Ensuite : bouton de synchro (ou tirer vers le bas) sur *Activités*, et synchro automatique à l'ouverture si la dernière date de plus de 6 h. Les opérations déjà importées par relevé ne sont pas dupliquées (même montant à ±3 jours). L'accès est à renouveler tous les ~180 jours.
+
+La clé privée reste sur le téléphone : ne jamais la committer.

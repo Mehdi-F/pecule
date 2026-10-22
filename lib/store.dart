@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show ChangeNotifier, compute;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import 'bank/eb_client.dart';
+import 'bank/eb_mapping.dart';
 import 'categorizer.dart';
 import 'importer.dart';
 import 'models.dart';
@@ -45,6 +47,17 @@ class Store extends ChangeNotifier {
   DateTime? anchorDate;
   int? _fallbackExpense;
   int? _fallbackIncome;
+
+  // Synchro bancaire (Enable Banking)
+  String? ebAppId;
+  String? _ebKey;
+  String? ebAspsp;
+  String? _ebSessionId;
+  String? _ebAccountUid;
+  String? ebAccountName;
+  DateTime? ebValidUntil;
+  DateTime? ebLastSync;
+  bool syncing = false;
 
   static final Category unknownCategory =
       Category(id: -1, name: 'Sans catégorie', icon: 'other', color: 0xFFB0B7C9, kind: 'both');
@@ -137,6 +150,14 @@ class Store extends ChangeNotifier {
     anchorDate = DateTime.tryParse(s['anchor_date'] ?? '');
     _fallbackExpense = int.tryParse(s['fallback_expense'] ?? '');
     _fallbackIncome = int.tryParse(s['fallback_income'] ?? '');
+    ebAppId = s['eb_app_id'];
+    _ebKey = s['eb_key'];
+    ebAspsp = s['eb_aspsp'];
+    _ebSessionId = s['eb_session_id'];
+    _ebAccountUid = s['eb_account_uid'];
+    ebAccountName = s['eb_account_name'];
+    ebValidUntil = DateTime.tryParse(s['eb_valid_until'] ?? '');
+    ebLastSync = DateTime.tryParse(s['eb_last_sync'] ?? '');
     _reindex();
     if ((int.tryParse(s['rules_version'] ?? '') ?? 1) < defaultRulesVersion) await _upgradeRules();
   }
@@ -270,13 +291,44 @@ class Store extends ChangeNotifier {
 
   Future<ImportSummary> importBytes(List<int> bytes) async {
     final res = isPdf(bytes) ? await _parsePdf(bytes) : parseStatement(bytes);
+    return ingest(res);
+  }
+
+  static bool _fromBank(String hash) => hash.startsWith(bankHashPrefix);
+
+  /// Ajoute des opérations en ignorant les doublons :
+  /// - même empreinte (réimport du même fichier / même synchro) ;
+  /// - même montant à ±3 jours d'une opération venue de l'autre source
+  ///   (relevé importé d'un côté, synchro bancaire de l'autre).
+  Future<ImportSummary> ingest(ParseResult res) async {
     final existing = txs.map((t) => t.hash).toSet();
+    final crossSource = <int, List<Tx>>{};
+    for (final t in txs) {
+      crossSource.putIfAbsent(t.amountCents, () => []).add(t);
+    }
+    final matched = <int>{};
     final sorted = sortedRules;
     var dup = 0;
     final added = <Tx>[];
     await db.transaction((txn) async {
       for (final ptx in res.txs) {
         if (!existing.add(ptx.hash)) {
+          dup++;
+          continue;
+        }
+        final incomingBank = _fromBank(ptx.hash);
+        Tx? twin;
+        var bestGap = 4;
+        for (final t in crossSource[ptx.amountCents] ?? const <Tx>[]) {
+          if (_fromBank(t.hash) == incomingBank || matched.contains(t.id)) continue;
+          final gap = t.date.difference(dateOnly(ptx.date)).inDays.abs();
+          if (gap < bestGap) {
+            bestGap = gap;
+            twin = t;
+          }
+        }
+        if (twin != null) {
+          matched.add(twin.id);
           dup++;
           continue;
         }
@@ -416,6 +468,115 @@ class Store extends ChangeNotifier {
     anchorDate = null;
     _reindex();
     notifyListeners();
+  }
+
+  // ---------------------------------------------------------------- synchro bancaire
+
+  bool get hasBankApp => ebAppId != null && _ebKey != null;
+  bool get bankConnected => hasBankApp && _ebSessionId != null && _ebAccountUid != null;
+  bool get bankExpired => bankConnected && ebValidUntil != null && ebValidUntil!.isBefore(DateTime.now());
+
+  EbClient get bankClient {
+    if (!hasBankApp) throw const EbException('Configure d\'abord ton application Enable Banking.');
+    return EbClient(ebAppId!, _ebKey!);
+  }
+
+  Future<void> setBankApp(String appId, String pem) async {
+    EbClient.validateKey(pem);
+    ebAppId = appId.trim();
+    _ebKey = pem;
+    await _setSetting('eb_app_id', ebAppId);
+    await _setSetting('eb_key', pem);
+    notifyListeners();
+  }
+
+  /// Enregistre la session créée après l'autorisation à la banque.
+  Future<void> saveBankSession({
+    required String sessionId,
+    required String accountUid,
+    required String accountName,
+    required String aspsp,
+    DateTime? validUntil,
+  }) async {
+    _ebSessionId = sessionId;
+    _ebAccountUid = accountUid;
+    ebAccountName = accountName;
+    ebAspsp = aspsp;
+    ebValidUntil = validUntil;
+    await _setSetting('eb_session_id', sessionId);
+    await _setSetting('eb_account_uid', accountUid);
+    await _setSetting('eb_account_name', accountName);
+    await _setSetting('eb_aspsp', aspsp);
+    await _setSetting('eb_valid_until', validUntil?.toIso8601String());
+    notifyListeners();
+  }
+
+  Future<void> disconnectBank({bool forgetApp = false}) async {
+    final id = _ebSessionId;
+    if (id != null && hasBankApp) {
+      try {
+        await bankClient.deleteSession(id);
+      } catch (_) {
+        // déjà expirée côté banque : rien à faire
+      }
+    }
+    _ebSessionId = null;
+    _ebAccountUid = null;
+    ebAccountName = null;
+    ebValidUntil = null;
+    for (final k in ['eb_session_id', 'eb_account_uid', 'eb_account_name', 'eb_valid_until']) {
+      await _setSetting(k, null);
+    }
+    if (forgetApp) {
+      ebAppId = null;
+      _ebKey = null;
+      ebLastSync = null;
+      for (final k in ['eb_app_id', 'eb_key', 'eb_last_sync']) {
+        await _setSetting(k, null);
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Récupère les opérations comptabilisées depuis la dernière synchro (1 an la première fois).
+  Future<ImportSummary> syncBank() async {
+    if (!bankConnected) throw const EbException('Aucune banque connectée.');
+    if (syncing) return const ImportSummary(0, 0, 'Banque', false);
+    syncing = true;
+    notifyListeners();
+    try {
+      final client = bankClient;
+      final uid = _ebAccountUid!;
+      final now = DateTime.now();
+      final last = ebLastSync;
+      List<Map<String, dynamic>> raw;
+      if (last == null) {
+        try {
+          raw = await client.transactions(uid, now.subtract(const Duration(days: 365)));
+        } on EbException catch (e) {
+          if (e.needsReconnect) rethrow;
+          raw = await client.transactions(uid, now.subtract(const Duration(days: 89)));
+        }
+      } else {
+        raw = await client.transactions(uid, last.subtract(const Duration(days: 10)));
+      }
+      final occ = <String, int>{};
+      final parsed = [for (final j in raw) mapEbTransaction(j, occ)].whereType<ParsedTx>().toList();
+      (int, DateTime)? balance;
+      try {
+        balance = pickBalance(await client.balances(uid));
+      } on EbException {
+        balance = null;
+      }
+      final res = ParseResult(parsed, 'Banque', balanceCents: balance?.$1, balanceDate: balance?.$2);
+      final summary = await ingest(res);
+      ebLastSync = now;
+      await _setSetting('eb_last_sync', now.toIso8601String());
+      return summary;
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
   }
 }
 

@@ -5,6 +5,7 @@ import '../../store.dart';
 import '../import_flow.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'bank_sync.dart';
 import 'tx_sheet.dart';
 
 class ActivitiesScreen extends StatelessWidget {
@@ -20,6 +21,14 @@ class ActivitiesScreen extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Activités'),
             actions: [
+              if (store.bankConnected && !store.bankExpired)
+                IconButton(
+                  tooltip: 'Synchroniser',
+                  icon: store.syncing
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.sync_rounded),
+                  onPressed: store.syncing ? null : () => runBankSync(context),
+                ),
               IconButton(
                 tooltip: 'Importer un relevé',
                 icon: const Icon(Icons.file_upload_outlined),
@@ -39,13 +48,19 @@ class ActivitiesScreen extends StatelessWidget {
                     label: const Text('Importer un relevé'),
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                  itemCount: days.length + 1,
-                  itemBuilder: (context, i) {
-                    if (i == 0) return const _BalanceCard();
-                    return _DayCard(key: ValueKey(days[i - 1].day), day: days[i - 1]);
+              : RefreshIndicator(
+                  onRefresh: () async {
+                    if (store.bankConnected && !store.bankExpired) await runBankSync(context);
                   },
+                  child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                    itemCount: days.length + 1,
+                    itemBuilder: (context, i) {
+                      if (i == 0) return _BalanceCard();
+                      return _DayCard(key: ValueKey(days[i - 1].day), day: days[i - 1]);
+                    },
+                  ),
                 ),
         );
       },
@@ -77,6 +92,14 @@ class _BalanceCard extends StatelessWidget {
                     color: bal != null && bal < 0 ? AppColors.red : AppColors.ink,
                   ),
                 ),
+                if (store.ebLastSync != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      store.bankExpired ? 'Accès bancaire expiré · à reconnecter' : 'Synchronisé ${syncAgo(store.ebLastSync!)}',
+                      style: TextStyle(color: store.bankExpired ? AppColors.red : AppColors.muted, fontSize: 12),
+                    ),
+                  ),
                 if (bal == null)
                   const Padding(
                     padding: EdgeInsets.only(top: 4),

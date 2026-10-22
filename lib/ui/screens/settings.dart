@@ -5,6 +5,7 @@ import '../../store.dart';
 import '../import_flow.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'bank_sync.dart';
 import 'tx_sheet.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -35,6 +36,21 @@ class SettingsScreen extends StatelessWidget {
                   title: 'Solde actuel',
                   subtitle: bal == null ? 'Non renseigné' : money(bal),
                   onTap: () => editBalance(context),
+                ),
+              ]),
+              const SectionTitle('SYNCHRO BANCAIRE'),
+              _Group(children: [
+                _Item(
+                  icon: Icons.sync_rounded,
+                  title: 'Synchro avec ma banque',
+                  subtitle: !store.hasBankApp
+                      ? 'Non configurée · via Enable Banking'
+                      : !store.bankConnected
+                          ? 'Clé importée · banque à connecter'
+                          : store.bankExpired
+                              ? 'Accès expiré · à reconnecter'
+                              : '${store.ebAspsp ?? 'Banque'} connectée',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BankSyncScreen())),
                 ),
               ]),
               const SectionTitle('BUDGET & CATÉGORIES'),

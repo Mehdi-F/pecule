@@ -37,7 +37,15 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  late final Future<void> _init = store.init();
+  late final Future<void> _init = store.init().then((_) => _autoSync());
+
+  /// Synchro discrète à l'ouverture si la dernière date de plus de 6 h.
+  void _autoSync() {
+    final last = store.ebLastSync;
+    if (!store.bankConnected || store.bankExpired) return;
+    if (last != null && DateTime.now().difference(last) < const Duration(hours: 6)) return;
+    store.syncBank().catchError((_) => const ImportSummary(0, 0, 'Banque', false));
+  }
   int _index = 0;
 
   @override
