@@ -44,7 +44,7 @@ class _TxSheetState extends State<TxSheet> {
   }
 
   Future<void> _changeCategory(Tx t) async {
-    final id = await pickCategory(context, selected: t.categoryId);
+    final id = await pickCategory(context, selected: t.categoryId, forExpense: t.isExpense);
     if (id == null || !mounted || id == t.categoryId) return;
     await store.setCategory(t, id);
     if (!mounted) return;
@@ -53,6 +53,39 @@ class _TxSheetState extends State<TxSheet> {
     final n = await store.addRuleAndApply(keyword, id);
     if (!mounted) return;
     toast(context, n == 0 ? 'Règle créée pour les prochains imports.' : 'Règle créée, $n opération${n > 1 ? 's' : ''} mise${n > 1 ? 's' : ''} à jour.');
+  }
+
+  Future<void> _pickMonth(Tx t) async {
+    final natural = DateTime(t.date.year, t.date.month);
+    final options = [
+      DateTime(natural.year, natural.month - 1),
+      natural,
+      DateTime(natural.year, natural.month + 1),
+    ];
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(8, 16, 8, 16 + MediaQuery.paddingOf(ctx).bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Compter cette opération en…',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+            const SizedBox(height: 8),
+            for (final m in options)
+              ListTile(
+                title: Text(monthTitle(m)),
+                subtitle: m == natural ? const Text('Mois de l\'opération') : null,
+                trailing: m == t.analysisMonth ? const Icon(Icons.check_rounded, color: AppColors.primary) : null,
+                onTap: () => Navigator.pop(ctx, m),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) await store.setMonthOverride(t, picked);
   }
 
   Future<String?> _askRule(Tx t, String catName) {
@@ -156,8 +189,29 @@ class _TxSheetState extends State<TxSheet> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                     leading: CategoryAvatar(cat, size: 36),
                     title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: cat.parentId == null ? null : Text(store.topOf(cat).name),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => _changeCategory(t),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _Box(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    leading: const Icon(Icons.calendar_month_rounded, color: AppColors.primary),
+                    title: const Text('Mois', style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Mois dans lequel l\'opération compte pour l\'analyse'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(monthName(t.analysisMonth),
+                            style: TextStyle(
+                                color: t.monthOverride == null ? AppColors.muted : AppColors.primary,
+                                fontWeight: FontWeight.w600)),
+                        const Icon(Icons.chevron_right_rounded),
+                      ],
+                    ),
+                    onTap: () => _pickMonth(t),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -373,68 +427,142 @@ class _LinkPickerScreenState extends State<LinkPickerScreen> {
   }
 }
 
-/// Sélecteur de catégorie (avec création). Renvoie l'id choisi.
-Future<int?> pickCategory(BuildContext context, {int? selected}) {
+/// Sélecteur de catégorie à deux niveaux, avec recherche. Renvoie l'id choisi.
+Future<int?> pickCategory(BuildContext context, {int? selected, bool? forExpense}) {
   return showModalBottomSheet<int>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-    builder: (ctx) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.65,
-      minChildSize: 0.3,
-      maxChildSize: 1,
-      builder: (ctx, scroll) => SingleChildScrollView(
-      controller: scroll,
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 24 + MediaQuery.paddingOf(ctx).bottom),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
-          const Text('Catégorie', textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final c in store.sortedCategories)
-                ChoiceChip(
-                  avatar: Icon(iconFor(c.icon), size: 18, color: Color(c.color)),
-                  label: Text(c.name),
-                  selected: c.id == selected,
-                  onSelected: (_) => Navigator.pop(ctx, c.id),
-                ),
-              ActionChip(
-                avatar: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Nouvelle catégorie'),
-                onPressed: () async {
-                  final id = await createCategoryDialog(ctx);
-                  if (id != null && ctx.mounted) Navigator.pop(ctx, id);
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-    ),
+    builder: (ctx) => _CategoryPicker(selected: selected, forExpense: forExpense),
   );
 }
 
+class _CategoryPicker extends StatefulWidget {
+  final int? selected;
+  final bool? forExpense;
+  const _CategoryPicker({this.selected, this.forExpense});
+
+  @override
+  State<_CategoryPicker> createState() => _CategoryPickerState();
+}
+
+class _CategoryPickerState extends State<_CategoryPicker> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final tops = store.topCategories();
+    // Les catégories du bon sens (dépense / entrée) d'abord.
+    final want = widget.forExpense == null ? null : (widget.forExpense! ? 'expense' : 'income');
+    if (want != null) {
+      tops.sort((a, b) {
+        final pa = a.kind == want ? 0 : 1, pb = b.kind == want ? 0 : 1;
+        return pa != pb ? pa.compareTo(pb) : a.sortOrder.compareTo(b.sortOrder);
+      });
+    }
+    final selectedTop = widget.selected == null || store.categories[widget.selected] == null
+        ? null
+        : store.topOf(store.categories[widget.selected]!).id;
+    final q = normalize(_query);
+
+    Widget leaf(Category c, {bool showParent = false}) => ListTile(
+          contentPadding: const EdgeInsets.only(left: 28, right: 16),
+          leading: Icon(iconFor(c.icon), color: Color(c.color), size: 22),
+          title: Text(c.name),
+          subtitle: showParent && c.parentId != null ? Text(store.topOf(c).name) : null,
+          trailing: c.id == widget.selected ? const Icon(Icons.check_rounded, color: AppColors.primary) : null,
+          onTap: () => Navigator.pop(context, c.id),
+        );
+
+    final children = <Widget>[];
+    if (q.isNotEmpty) {
+      final matches = store.categories.values.where((c) => normalize(c.name).contains(q)).toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      children.addAll(matches.map((c) => leaf(c, showParent: true)));
+      if (matches.isEmpty) {
+        children.add(const Padding(padding: EdgeInsets.all(24), child: Text('Aucune catégorie trouvée.')));
+      }
+    } else {
+      for (final top in tops) {
+        final subs = store.childrenOf(top.id);
+        if (subs.isEmpty) {
+          children.add(ListTile(
+            leading: CategoryAvatar(top, size: 40, filled: true),
+            title: Text(top.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+            trailing: top.id == widget.selected ? const Icon(Icons.check_rounded, color: AppColors.primary) : null,
+            onTap: () => Navigator.pop(context, top.id),
+          ));
+          continue;
+        }
+        children.add(Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            initiallyExpanded: top.id == selectedTop,
+            leading: CategoryAvatar(top, size: 40, filled: true),
+            title: Text(top.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+            children: [for (final c in subs) leaf(c)],
+          ),
+        ));
+      }
+    }
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.75,
+      minChildSize: 0.35,
+      maxChildSize: 1,
+      builder: (context, scroll) => Column(
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2)),
+          ),
+          const Text('Catégories', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: TextField(
+              onChanged: (v) => setState(() => _query = v),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search_rounded),
+                hintText: 'Rechercher une catégorie',
+                isDense: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+          ListTile(
+            title: const Text('Créer une catégorie'),
+            trailing: const Icon(Icons.add_circle_outline_rounded),
+            onTap: () async {
+              final id = await createCategoryDialog(context);
+              if (id != null && context.mounted) Navigator.pop(context, id);
+            },
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              controller: scroll,
+              padding: EdgeInsets.only(bottom: 16 + MediaQuery.paddingOf(context).bottom),
+              children: children,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Création d'une catégorie principale ou d'une sous-catégorie.
 Future<int?> createCategoryDialog(BuildContext context) async {
   final name = TextEditingController();
-  var icon = categoryIcons.keys.first;
+  var icon = pickableIcons.first;
   var color = categoryColors.first;
+  int? parentId;
+  final tops = store.topCategories();
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -446,46 +574,58 @@ Future<int?> createCategoryDialog(BuildContext context) async {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Nom')),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              DropdownButton<int?>(
+                isExpanded: true,
+                value: parentId,
+                items: [
+                  const DropdownMenuItem<int?>(value: null, child: Text('Catégorie principale')),
+                  for (final t in tops) DropdownMenuItem<int?>(value: t.id, child: Text('Dans « ${t.name} »')),
+                ],
+                onChanged: (v) => setSt(() => parentId = v),
+              ),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  for (final e in categoryIcons.entries)
+                  for (final k in pickableIcons)
                     InkWell(
-                      onTap: () => setSt(() => icon = e.key),
+                      onTap: () => setSt(() => icon = k),
                       borderRadius: BorderRadius.circular(20),
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: icon == e.key ? Color(color).withValues(alpha: 0.2) : Colors.transparent,
+                          color: icon == k ? Color(color).withValues(alpha: 0.2) : Colors.transparent,
                         ),
-                        child: Icon(e.value, color: icon == e.key ? Color(color) : AppColors.muted, size: 20),
+                        child: Icon(iconFor(k), color: icon == k ? Color(color) : AppColors.muted, size: 20),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in categoryColors)
-                    GestureDetector(
-                      onTap: () => setSt(() => color = c),
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: Color(c),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: c == color ? AppColors.ink : Colors.transparent, width: 2),
+              if (parentId == null) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final c in categoryColors)
+                      GestureDetector(
+                        onTap: () => setSt(() => color = c),
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: Color(c),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: c == color ? AppColors.ink : Colors.transparent, width: 2),
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -497,5 +637,5 @@ Future<int?> createCategoryDialog(BuildContext context) async {
     ),
   );
   if (ok != true || name.text.trim().isEmpty) return null;
-  return store.addCategory(name.text.trim(), icon, color);
+  return store.addCategory(name.text.trim(), icon, color, parentId: parentId);
 }

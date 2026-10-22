@@ -14,6 +14,10 @@ void main() {
     expect(cleanLabel('Prelvt Sepa Recu D/o Confrere Prlv Sepa Worklife Ics.nl48zzz342764500000 .rum.s2ggqtzfcf2kbvq9 Sdr629392497866'),
         'Worklife');
     expect(cleanLabel('CB SUSHI 8 20/10/26'), 'Sushi 8');
+    expect(cleanLabel('VIREMENT PERMANENT VIR.PERMANENT LA RHONELLE IMMOB'), 'La Rhonelle Immob');
+    expect(cleanLabel('VIREMENT SEPA RECU VIREMENT CAPGEMINI TECHNOLOGY S'), 'Capgemini Technology S');
+    expect(cleanLabel('VIREMENT INSTANTANE VIR INST M MEHDI FERCHICHI'), 'M Mehdi Ferchichi');
+    expect(cleanLabel('CB PAIEMENT A FERCHICHIMEHDI'), 'Ferchichimehdi');
   });
 
   test('mot-clé marchand', () {

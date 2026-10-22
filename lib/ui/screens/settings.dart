@@ -183,7 +183,7 @@ class RulesScreen extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: CategoryAvatar(cat, size: 36),
                   title: Text(r.keyword, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text('${cat.name}${r.priority > 0 ? ' · perso' : ''}'),
+                  subtitle: Text('${cat.parentId == null ? cat.name : '${store.topOf(cat).name} › ${cat.name}'}${r.priority > 0 ? ' · perso' : ''}'),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline_rounded),
                     onPressed: () => store.deleteRule(r),

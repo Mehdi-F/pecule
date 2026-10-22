@@ -82,26 +82,49 @@ void main() {
     expect(() => parseStatement(b('bonjour\nceci n est pas un releve\n')), throwsA(isA<ImportException>()));
   });
 
-  test('catégorisation par défaut', () {
-    final names = defaultCategories.map((c) => c.name).toList();
+  test('catégorisation par défaut (sous-catégories, sens de l\'opération)', () {
+    final names = <String>[];
+    final kinds = <String>[];
+    for (final p in taxonomy) {
+      names.add(p.name);
+      kinds.add(p.kind);
+      for (final sub in p.subs) {
+        names.add(sub.name);
+        kinds.add(p.kind);
+      }
+    }
     var id = 0;
     final rules = sortRules([
       for (final s in defaultRuleSeeds)
         Rule(id: id++, keyword: s.keyword, categoryId: names.indexOf(s.category), priority: s.priority),
     ]);
-    String? cat(String label) {
-      final i = categorize(label, rules);
+    String? cat(String label, {bool expense = true}) {
+      final i = categorize(label, rules, isExpense: expense, kindOf: (c) => kinds[c]);
       return i == null ? null : names[i];
     }
 
-    expect(cat('VIREMENT CPAM 123'), 'Remboursements');
-    expect(cat('PRLV SEPA FREE MOBILE'), 'Abonnements');
-    expect(cat('CB AMAZON PRIME'), 'Abonnements');
-    expect(cat('CB AMAZON MKTP FR'), 'Shopping');
-    expect(cat('VIR SEPA RECU SALAIRE OCTOBRE'), 'Salaire');
-    expect(cat('CB UBER *EATS'), 'Restaurants');
-    expect(cat('CB UBER TRIP'), 'Transport');
-    expect(cat('VIR SEPA RECU M DUPONT'), 'Virements');
+    expect(cat('VIREMENT CPAM 123', expense: false), 'Remboursements');
+    expect(cat('PRLV SEPA FREE MOBILE'), 'Internet & téléphonie');
+    expect(cat('CB AMAZON PRIME'), 'Streaming & TV');
+    expect(cat('CB AMAZON MKTP FR'), 'Achats & Shopping - Autres');
+    expect(cat('VIR SEPA RECU SALAIRE OCTOBRE', expense: false), 'Salaires');
+    expect(cat('CB UBER *EATS'), 'Sortie au restaurant');
+    expect(cat('CB UBER TRIP'), 'Taxi / VTC');
+    expect(cat('VIR SEPA EMIS M DUPONT'), 'Virements émis');
+    expect(cat('VIR INST M DUPONT', expense: false), 'Virements reçus');
+    expect(cat('VIR.PERMANENT LA RHONELLE IMMOB'), 'Loyer');
+    expect(cat('PRLV SEPA TotalEnergies Electricite et Gaz France'), 'Électricité');
+    expect(cat('CB Revolut**8072*'), 'Virements épargne');
+    expect(cat('MUTUELLE ABC', expense: false), 'Remboursements');
+    expect(cat('MUTUELLE ABC'), 'Mutuelle');
     expect(cat('CB VIRGIN MEGASTORE'), isNull);
+  });
+
+  test('taxonomie : noms uniques', () {
+    final names = [for (final p in taxonomy) ...[p.name, ...p.subs.map((s) => s.name)]];
+    expect(names.toSet().length, names.length);
+    for (final r in defaultRuleSeeds) {
+      expect(names.contains(r.category), isTrue, reason: r.category);
+    }
   });
 }

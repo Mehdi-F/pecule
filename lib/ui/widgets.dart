@@ -43,7 +43,8 @@ class AppCard extends StatelessWidget {
 class CategoryAvatar extends StatelessWidget {
   final Category category;
   final double size;
-  const CategoryAvatar(this.category, {super.key, this.size = 40});
+  final bool filled; // pastille pleine + icône blanche (style Bankin)
+  const CategoryAvatar(this.category, {super.key, this.size = 40, this.filled = false});
 
   @override
   Widget build(BuildContext context) {
@@ -51,8 +52,8 @@ class CategoryAvatar extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(color: c.withValues(alpha: 0.15), shape: BoxShape.circle),
-      child: Icon(iconFor(category.icon), color: c, size: size * 0.5),
+      decoration: BoxDecoration(color: filled ? c : c.withValues(alpha: 0.15), shape: BoxShape.circle),
+      child: Icon(iconFor(category.icon), color: filled ? Colors.white : c, size: size * 0.5),
     );
   }
 }
@@ -118,7 +119,7 @@ class TxTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         child: Row(
           children: [
-            CategoryAvatar(cat),
+            CategoryAvatar(cat, filled: true),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

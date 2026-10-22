@@ -18,3 +18,9 @@ String shortDate(DateTime d) => DateFormat('d MMM y', 'fr_FR').format(d);
 String monthTitle(DateTime d) => _cap(DateFormat('MMMM y', 'fr_FR').format(d));
 
 String centsToInput(int c) => (c / 100).toStringAsFixed(2).replaceAll('.', ',');
+
+/// « Octobre » (avec l'année si ce n'est pas l'année en cours).
+String monthName(DateTime d) {
+  final name = _cap(DateFormat('MMMM', 'fr_FR').format(d));
+  return d.year == DateTime.now().year ? name : '$name ${d.year}';
+}

@@ -75,35 +75,126 @@ class Store extends ChangeNotifier {
   Future<void> init() async {
     if (_db != null) return;
     final path = p.join(await getDatabasesPath(), 'pecule.db');
-    _db = await openDatabase(path, version: 1, onCreate: _create);
+    _db = await openDatabase(path, version: 2, onCreate: _create, onUpgrade: _upgrade);
     await _loadAll();
   }
 
   Future<void> _create(Database db, int version) async {
     await db.execute('CREATE TABLE categories(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, '
-        'icon TEXT NOT NULL, color INTEGER NOT NULL, kind TEXT NOT NULL)');
+        'icon TEXT NOT NULL, color INTEGER NOT NULL, kind TEXT NOT NULL, parent_id INTEGER, grp TEXT, '
+        'sort INTEGER NOT NULL DEFAULT 0)');
     await db.execute('CREATE TABLE rules(id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL, '
         'category_id INTEGER NOT NULL, priority INTEGER NOT NULL DEFAULT 0)');
     await db.execute('CREATE TABLE transactions(id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL UNIQUE, '
         'date TEXT NOT NULL, amount_cents INTEGER NOT NULL, label TEXT NOT NULL, raw_label TEXT NOT NULL, '
         'category_id INTEGER, cat_manual INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT \'\', '
-        'excluded INTEGER NOT NULL DEFAULT 0)');
+        'excluded INTEGER NOT NULL DEFAULT 0, month_override TEXT)');
     await db.execute('CREATE TABLE links(id INTEGER PRIMARY KEY AUTOINCREMENT, expense_id INTEGER NOT NULL, '
         'income_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL)');
     await db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
 
+    final ids = await _seedTaxonomy(db);
+    await _seedRules(db, ids);
+    await _saveFallbacks(db, ids);
+    await db.insert('settings', {'key': 'labels_version', 'value': '2'});
+  }
+
+  /// Insère catégories et sous-catégories ; renvoie nom → id.
+  static Future<Map<String, int>> _seedTaxonomy(DatabaseExecutor db) async {
     final ids = <String, int>{};
-    for (final c in defaultCategories) {
-      ids[c.name] = await db.insert('categories', {'name': c.name, 'icon': c.icon, 'color': c.color, 'kind': c.kind});
+    for (var i = 0; i < taxonomy.length; i++) {
+      final p = taxonomy[i];
+      final pid = await db.insert('categories', {
+        'name': p.name, 'icon': p.icon, 'color': p.color, 'kind': p.kind, 'parent_id': null, 'grp': p.grp, 'sort': i,
+      });
+      ids[p.name] = pid;
+      for (var j = 0; j < p.subs.length; j++) {
+        final sub = p.subs[j];
+        ids[sub.name] = await db.insert('categories', {
+          'name': sub.name, 'icon': sub.icon, 'color': p.color, 'kind': p.kind, 'parent_id': pid, 'grp': sub.grp, 'sort': j,
+        });
+      }
     }
+    return ids;
+  }
+
+  static Future<void> _seedRules(DatabaseExecutor db, Map<String, int> ids) async {
     for (final r in defaultRuleSeeds) {
       final cid = ids[r.category];
       if (cid == null) continue;
       await db.insert('rules', {'keyword': r.keyword, 'category_id': cid, 'priority': r.priority});
     }
-    await db.insert('settings', {'key': 'fallback_expense', 'value': '${ids[expenseFallbackName]}'});
-    await db.insert('settings', {'key': 'fallback_income', 'value': '${ids[incomeFallbackName]}'});
-    await db.insert('settings', {'key': 'rules_version', 'value': '$defaultRulesVersion'});
+  }
+
+  static Future<void> _saveFallbacks(DatabaseExecutor db, Map<String, int> ids) async {
+    final values = {
+      'fallback_expense': '${ids[expenseFallbackName]}',
+      'fallback_income': '${ids[incomeFallbackName]}',
+      'rules_version': '$defaultRulesVersion',
+    };
+    for (final e in values.entries) {
+      await db.insert('settings', {'key': e.key, 'value': e.value}, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+
+  /// v1 → v2 : catégories et sous-catégories façon Bankin, mois d'analyse.
+  Future<void> _upgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE categories ADD COLUMN parent_id INTEGER');
+      await db.execute('ALTER TABLE categories ADD COLUMN grp TEXT');
+      await db.execute('ALTER TABLE categories ADD COLUMN sort INTEGER NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE transactions ADD COLUMN month_override TEXT');
+      // onUpgrade s'exécute déjà dans une transaction : pas de transaction imbriquée.
+      final txn = db;
+      {
+        final old = await txn.query('categories', columns: ['id', 'name']);
+        final ids = await _seedTaxonomy(txn);
+        for (final row in old) {
+          final oldId = row['id'] as int;
+          final target = ids[legacyCategoryMap[row['name']]];
+          if (target == null) {
+            // Catégorie créée par l'utilisateur : elle devient une catégorie principale.
+            await txn.update('categories', {'parent_id': null, 'grp': grpImprevu, 'kind': 'both', 'sort': 100},
+                where: 'id = ?', whereArgs: [oldId]);
+            continue;
+          }
+          await txn.update('transactions', {'category_id': target}, where: 'category_id = ?', whereArgs: [oldId]);
+          await txn.update('rules', {'category_id': target}, where: 'category_id = ? AND priority > 0', whereArgs: [oldId]);
+          await txn.delete('categories', where: 'id = ?', whereArgs: [oldId]);
+        }
+        await txn.delete('rules', where: 'priority <= 0');
+        await _seedRules(txn, ids);
+        await _saveFallbacks(txn, ids);
+        await txn.insert('settings', {'key': 'recat_all', 'value': '1'}, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    }
+  }
+
+  /// Sens d'une catégorie (une sous-catégorie hérite de sa catégorie principale).
+  String kindOf(int categoryId) {
+    final c = categories[categoryId];
+    if (c == null) return 'both';
+    final parent = c.parentId == null ? null : categories[c.parentId];
+    return parent?.kind ?? c.kind;
+  }
+
+  int? _autoCategory(String rawLabel, bool isExpense, List<Rule> sorted) =>
+      categorize(rawLabel, sorted, isExpense: isExpense, kindOf: kindOf) ??
+      (isExpense ? _fallbackExpense : _fallbackIncome);
+
+  /// Recatégorise les opérations non rangées à la main avec les règles actuelles.
+  Future<void> _recategorizeAll() async {
+    final sorted = sortRules(rules);
+    await db.transaction((txn) async {
+      for (final t in txs) {
+        if (t.categoryManual) continue;
+        final cid = _autoCategory(t.rawLabel, t.isExpense, sorted);
+        if (cid == null || cid == t.categoryId) continue;
+        t.categoryId = cid;
+        await txn.update('transactions', {'category_id': cid}, where: 'id = ?', whereArgs: [t.id]);
+      }
+      await txn.delete('settings', where: 'key = ?', whereArgs: ['recat_all']);
+    });
   }
 
   /// Applique le nettoyage de libellés amélioré aux opérations déjà enregistrées.
@@ -134,7 +225,7 @@ class Store extends ChangeNotifier {
       final sorted = sortRules(rules);
       for (final t in txs) {
         if (t.categoryManual) continue;
-        final cid = categorize(t.rawLabel, sorted) ?? (t.isExpense ? _fallbackExpense : _fallbackIncome);
+        final cid = _autoCategory(t.rawLabel, t.isExpense, sorted);
         if (cid == null || cid == t.categoryId) continue;
         t.categoryId = cid;
         await txn.update('transactions', {'category_id': cid}, where: 'id = ?', whereArgs: [t.id]);
@@ -183,6 +274,7 @@ class Store extends ChangeNotifier {
     _pendingAspsp = s['eb_pending_aspsp'];
     _pendingValidUntil = DateTime.tryParse(s['eb_pending_valid_until'] ?? '');
     _reindex();
+    if (s['recat_all'] == '1') await _recategorizeAll();
     if ((int.tryParse(s['rules_version'] ?? '') ?? 1) < defaultRulesVersion) await _upgradeRules();
     if ((int.tryParse(s['labels_version'] ?? '') ?? 1) < 2) await _relabel();
   }
@@ -275,27 +367,95 @@ class Store extends ChangeNotifier {
     ];
   }
 
-  List<Tx> monthTxs(DateTime month) => txs
-      .where((t) => t.date.year == month.year && t.date.month == month.month && !t.excluded)
-      .toList();
+  List<Tx> monthTxs(DateTime month) => txs.where((t) {
+        final m = t.analysisMonth;
+        return m.year == month.year && m.month == month.month && !t.excluded;
+      }).toList();
 
-  List<CategoryTotal> totals(DateTime month, {required bool expenses}) {
-    final cents = <int, int>{};
-    final counts = <int, int>{};
+  Category topOf(Category c) => c.parentId == null ? c : (categories[c.parentId] ?? c);
+
+  Category topCategoryOf(Tx t) => topOf(categoryOf(t));
+
+  List<Category> childrenOf(int parentId) =>
+      categories.values.where((c) => c.parentId == parentId).toList()..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+  List<Category> topCategories() => categories.values.where((c) => c.isTop).toList()
+    ..sort((a, b) {
+      final o = a.sortOrder.compareTo(b.sortOrder);
+      return o != 0 ? o : a.name.compareTo(b.name);
+    });
+
+  String groupOf(Category c) => c.grp ?? topOf(c).grp ?? grpImprevu;
+
+  /// Opérations du mois dans le sens demandé, avec leur montant net (positif).
+  Iterable<(Tx, int)> _monthNet(DateTime month, bool expenses) sync* {
     for (final t in monthTxs(month)) {
       if (t.isExpense != expenses) continue;
       final net = netCents(t).abs();
-      if (net == 0) continue;
-      final key = t.categoryId ?? -1;
-      cents[key] = (cents[key] ?? 0) + net;
-      counts[key] = (counts[key] ?? 0) + 1;
+      if (net != 0) yield (t, net);
     }
-    final list = [
-      for (final e in cents.entries)
-        CategoryTotal(categories[e.key] ?? unknownCategory, e.value, counts[e.key] ?? 0),
-    ];
+  }
+
+  List<CategoryTotal> _totalsBy(DateTime month, bool expenses, Category Function(Tx) keyOf) {
+    final cents = <int, int>{};
+    final counts = <int, int>{};
+    final cats = <int, Category>{};
+    for (final (t, net) in _monthNet(month, expenses)) {
+      final c = keyOf(t);
+      cats[c.id] = c;
+      cents[c.id] = (cents[c.id] ?? 0) + net;
+      counts[c.id] = (counts[c.id] ?? 0) + 1;
+    }
+    final list = [for (final id in cents.keys) CategoryTotal(cats[id]!, cents[id]!, counts[id] ?? 0)];
     list.sort((a, b) => b.cents.compareTo(a.cents));
     return list;
+  }
+
+  /// Totaux par catégorie principale.
+  List<CategoryTotal> totals(DateTime month, {required bool expenses}) =>
+      _totalsBy(month, expenses, topCategoryOf);
+
+  /// Totaux par sous-catégorie (pour les entrées, ou le détail d'une catégorie).
+  List<CategoryTotal> leafTotals(DateTime month, {required bool expenses}) =>
+      _totalsBy(month, expenses, categoryOf);
+
+  /// Toutes les sous-catégories d'une catégorie principale, y compris celles à 0 €.
+  List<CategoryTotal> subTotals(DateTime month, Category parent, {required bool expenses}) {
+    final byId = {for (final c in leafTotals(month, expenses: expenses)) c.category.id: c};
+    final subs = childrenOf(parent.id);
+    final list = [
+      for (final c in subs) byId[c.id] ?? CategoryTotal(c, 0, 0),
+      if (byId[parent.id] != null) byId[parent.id]!,
+    ];
+    list.sort((a, b) {
+      final d = b.cents.compareTo(a.cents);
+      return d != 0 ? d : a.category.sortOrder.compareTo(b.category.sortOrder);
+    });
+    return list;
+  }
+
+  /// Totaux de la vue « Simplifié » (Essentiel, Plaisir, Épargne, Imprévu).
+  Map<String, (int, int)> groupTotals(DateTime month) {
+    final out = {for (final g in groupLabels.keys) g: (0, 0)};
+    for (final (t, net) in _monthNet(month, true)) {
+      final g = groupOf(categoryOf(t));
+      final cur = out[g] ?? (0, 0);
+      out[g] = (cur.$1 + net, cur.$2 + 1);
+    }
+    return out;
+  }
+
+  /// Opérations du mois filtrées (détail d'une catégorie, d'une sous-catégorie ou d'un groupe).
+  List<Tx> monthFiltered(DateTime month, {required bool expenses, required bool Function(Tx) where}) =>
+      [for (final (t, _) in _monthNet(month, expenses)) if (where(t)) t];
+
+  Future<void> setMonthOverride(Tx t, DateTime? month) async {
+    final m = month == null ? null : DateTime(month.year, month.month);
+    final natural = DateTime(t.date.year, t.date.month);
+    t.monthOverride = (m == null || m == natural) ? null : m;
+    await db.update('transactions', {'month_override': t.monthOverride == null ? null : ymd(t.monthOverride!)},
+        where: 'id = ?', whereArgs: [t.id]);
+    notifyListeners();
   }
 
   int monthTotal(DateTime month, {required bool expenses}) =>
@@ -357,8 +517,7 @@ class Store extends ChangeNotifier {
           dup++;
           continue;
         }
-        final catId = categorize(ptx.rawLabel, sorted) ??
-            (ptx.amountCents < 0 ? _fallbackExpense : _fallbackIncome);
+        final catId = _autoCategory(ptx.rawLabel, ptx.amountCents < 0, sorted);
         final id = await txn.insert('transactions', {
           'hash': ptx.hash,
           'date': ymd(ptx.date),
@@ -407,7 +566,15 @@ class Store extends ChangeNotifier {
     final id = await db.insert('rules', {'keyword': k, 'category_id': categoryId, 'priority': userRulePriority});
     final rule = Rule(id: id, keyword: k, categoryId: categoryId, priority: userRulePriority);
     rules.add(rule);
-    final targets = txs.where((t) => !t.categoryManual && t.categoryId != categoryId && rule.matches(normalize(t.rawLabel))).toList();
+    final kind = kindOf(categoryId);
+    final targets = txs
+        .where((t) =>
+            !t.categoryManual &&
+            t.categoryId != categoryId &&
+            !(t.isExpense && kind == 'income') &&
+            !(!t.isExpense && kind == 'expense') &&
+            rule.matches(normalize(t.rawLabel)))
+        .toList();
     await db.transaction((txn) async {
       for (final t in targets) {
         await txn.update('transactions', {'category_id': categoryId}, where: 'id = ?', whereArgs: [t.id]);
@@ -475,9 +642,19 @@ class Store extends ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  Future<int> addCategory(String name, String icon, int color) async {
-    final id = await db.insert('categories', {'name': name, 'icon': icon, 'color': color, 'kind': 'both'});
-    categories[id] = Category(id: id, name: name, icon: icon, color: color, kind: 'both');
+  /// Crée une catégorie principale ([parentId] null) ou une sous-catégorie.
+  Future<int> addCategory(String name, String icon, int color, {int? parentId}) async {
+    final parent = parentId == null ? null : categories[parentId];
+    final kind = parent?.kind ?? 'both';
+    final sort = parent == null ? 100 : childrenOf(parent.id).length;
+    final id = await db.insert('categories', {
+      'name': name, 'icon': icon, 'color': parent?.color ?? color, 'kind': kind, 'parent_id': parentId,
+      'grp': parent == null ? grpImprevu : null, 'sort': sort,
+    });
+    categories[id] = Category(
+      id: id, name: name, icon: icon, color: parent?.color ?? color, kind: kind, parentId: parentId,
+      grp: parent == null ? grpImprevu : null, sortOrder: sort,
+    );
     notifyListeners();
     return id;
   }
