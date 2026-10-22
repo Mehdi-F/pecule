@@ -195,12 +195,14 @@ const Map<String, List<String>> _keywords = {
     'SUPER U', 'HYPER U', 'MARCHE U', 'NETTO', 'PICARD', 'GRAND FRAIS', 'BIOCOOP', 'CORA', 'SPAR',
     'LEADER PRICE', 'PROXI', 'NATURALIA', 'G20', 'MATCH', 'CARREFOUR EXPRES',
   ],
+  'Alimentation - Autres': ['BOUCHERIE', 'PRIMEUR', 'FROMAGERIE', 'TRAITEUR', 'EPICERIE'],
   'Boulangerie': ['BOULANGERIE', 'CB PAUL', 'MARIE BLACHERE'],
   'Fast foods': [
+    'FRITES', 'FRITERIE', 'FRITKOT',
     'MCDONALD', 'MCDONALDS', 'MC DO', 'BURGER KING', 'KFC', 'QUICK', 'SUBWAY', 'TACOS', 'O TACOS', 'KEBAB',
     'FIVE GUYS', 'DOMINOS', 'PIZZA HUT', 'POPEYES',
   ],
-  'Café / Snack': ['STARBUCKS', 'CAFE', 'COFFEE', 'DONUTS', 'COLUMBUS', 'BAGELSTEIN'],
+  'Café / Snack': ['KOFFIE', 'KOFFIEBAR', 'KAFFEE', 'COFFEESHOP', 'STARBUCKS', 'CAFE', 'COFFEE', 'DONUTS', 'COLUMBUS', 'BAGELSTEIN'],
   'Sortie au restaurant': [
     'RESTAURANT', 'BRASSERIE', 'SUSHI', 'PIZZA', 'UBER EATS', 'UBER *EATS', 'UBEREATS', 'DELIVEROO',
     'JUST EAT', 'RESTAURATION', 'BISTROT',
@@ -245,8 +247,8 @@ const Map<String, List<String>> _keywords = {
   ],
   'Coiffeur': ['COIFFUR', 'COIFFURE', 'COIFFEUR', 'BARBER', 'BARBIER'],
   'Cosmétique': ['SEPHORA', 'NOCIBE', 'MARIONNAUD', 'YVES ROCHER'],
-  'Divertissements': ['CINEMA', 'UGC', 'PATHE', 'GAUMONT', 'MK2', 'STEAM', 'PLAYSTATION', 'NINTENDO', 'XBOX', 'EPIC GAMES'],
-  'Sorties culturelles': ['TICKETMASTER', 'FNAC SPECTACLES', 'LIVE NATION', 'MUSEE', 'MUSEO'],
+  'Divertissements': ['MINI GOLF', 'BOWLING', 'LASER GAME', 'ESCAPE', 'KARTING', 'TRAMPOLINE', 'CINEMA', 'UGC', 'PATHE', 'GAUMONT', 'MK2', 'STEAM', 'PLAYSTATION', 'NINTENDO', 'XBOX', 'EPIC GAMES'],
+  'Sorties culturelles': ['NAUSICAA', 'ZOO', 'AQUARIUM', 'CHATEAU', 'TICKETMASTER', 'FNAC SPECTACLES', 'LIVE NATION', 'MUSEE', 'MUSEO'],
   'Voyages / Vacances': ['AIRBNB', 'BOOKING'],
   'Sport': ['BASIC FIT', 'FITNESS PARK', 'ON AIR'],
   'Médecin': ['MEDECIN', 'DOCTEUR', 'DOCTOLIB', 'KINE', 'LABORATOIRE', 'HOPITAL', 'CLINIQUE'],
@@ -292,7 +294,7 @@ List<RuleSeed> get defaultRuleSeeds => [
 const int userRulePriority = 10;
 
 /// À incrémenter quand on ajoute des mots-clés par défaut (migration des installations existantes).
-const int defaultRulesVersion = 3;
+const int defaultRulesVersion = 4;
 
 List<Rule> sortRules(Iterable<Rule> rules) => rules.toList()
   ..sort((a, b) {

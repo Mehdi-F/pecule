@@ -96,7 +96,7 @@ class Store extends ChangeNotifier {
     final ids = await _seedTaxonomy(db);
     await _seedRules(db, ids);
     await _saveFallbacks(db, ids);
-    await db.insert('settings', {'key': 'labels_version', 'value': '2'});
+    await db.insert('settings', {'key': 'labels_version', 'value': '3'});
   }
 
   /// Insère catégories et sous-catégories ; renvoie nom → id.
@@ -206,7 +206,7 @@ class Store extends ChangeNotifier {
         t.label = clean;
         await txn.update('transactions', {'label': clean}, where: 'id = ?', whereArgs: [t.id]);
       }
-      await txn.insert('settings', {'key': 'labels_version', 'value': '2'}, conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.insert('settings', {'key': 'labels_version', 'value': '3'}, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -276,7 +276,7 @@ class Store extends ChangeNotifier {
     _reindex();
     if (s['recat_all'] == '1') await _recategorizeAll();
     if ((int.tryParse(s['rules_version'] ?? '') ?? 1) < defaultRulesVersion) await _upgradeRules();
-    if ((int.tryParse(s['labels_version'] ?? '') ?? 1) < 2) await _relabel();
+    if ((int.tryParse(s['labels_version'] ?? '') ?? 1) < 3) await _relabel();
   }
 
   void _reindex() {

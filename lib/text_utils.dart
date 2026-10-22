@@ -25,6 +25,7 @@ String ymd(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${two(d.month)}-
 DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
 final List<RegExp> _prefixes = [
+  RegExp(r'^\d{4,}\s+'), // référence d'opération en tête (« 0918915 CB … »)
   RegExp(r'^(PAIEMENT\s+)?(PAR\s+)?(CB|CARTE)(\s+X?\d{4})?\s+', caseSensitive: false),
   RegExp(r'^PRELVT\s+SEPA(\s+RECU)?(\s+D/O\s+CONFRERE)?\s+', caseSensitive: false),
   RegExp(r'^PAIEMENT\s+(A|À)\s+', caseSensitive: false),

@@ -18,6 +18,8 @@ void main() {
     expect(cleanLabel('VIREMENT SEPA RECU VIREMENT CAPGEMINI TECHNOLOGY S'), 'Capgemini Technology S');
     expect(cleanLabel('VIREMENT INSTANTANE VIR INST M MEHDI FERCHICHI'), 'M Mehdi Ferchichi');
     expect(cleanLabel('CB PAIEMENT A FERCHICHIMEHDI'), 'Ferchichimehdi');
+    expect(cleanLabel('0918915 CB HACAPURI 18/10'), 'Hacapuri');
+    expect(cleanLabel('0918915 Cb Ls Frites Atelie 17/10'), 'Ls Frites Atelie');
   });
 
   test('mot-clé marchand', () {
