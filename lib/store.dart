@@ -43,6 +43,15 @@ class Store extends ChangeNotifier {
   final Map<int, int> _reimbursed = {};
   final Map<int, int> _allocated = {};
   int? budgetCents;
+
+  // Salaire de fin de mois compté dans le mois suivant
+  bool salaryShift = false;
+  int salaryShiftDay = 25;
+
+  // Notification du solde chaque matin
+  bool dailyNotif = false;
+  int dailyNotifHour = 8;
+  int? lastNotifiedBalance;
   int? anchorBalanceCents;
   DateTime? anchorDate;
   int? _fallbackExpense;
@@ -258,6 +267,11 @@ class Store extends ChangeNotifier {
     final settingRows = await db.query('settings');
     final s = <String, String>{for (final m in settingRows) m['key'] as String: m['value'] as String};
     budgetCents = int.tryParse(s['budget_cents'] ?? '');
+    salaryShift = s['salary_shift'] == '1';
+    salaryShiftDay = int.tryParse(s['salary_shift_day'] ?? '') ?? 25;
+    dailyNotif = s['daily_notif'] == '1';
+    dailyNotifHour = int.tryParse(s['daily_notif_hour'] ?? '') ?? 8;
+    lastNotifiedBalance = int.tryParse(s['notif_last_balance'] ?? '');
     anchorBalanceCents = int.tryParse(s['anchor_balance_cents'] ?? '');
     anchorDate = DateTime.tryParse(s['anchor_date'] ?? '');
     _fallbackExpense = int.tryParse(s['fallback_expense'] ?? '');
@@ -368,7 +382,7 @@ class Store extends ChangeNotifier {
   }
 
   List<Tx> monthTxs(DateTime month) => txs.where((t) {
-        final m = t.analysisMonth;
+        final m = analysisMonthOf(t);
         return m.year == month.year && m.month == month.month && !t.excluded;
       }).toList();
 
@@ -449,10 +463,27 @@ class Store extends ChangeNotifier {
   List<Tx> monthFiltered(DateTime month, {required bool expenses, required bool Function(Tx) where}) =>
       [for (final (t, _) in _monthNet(month, expenses)) if (where(t)) t];
 
+  bool _isSalary(Tx t) {
+    if (t.isExpense) return false;
+    final c = categories[t.categoryId];
+    return c != null && c.name == 'Salaires';
+  }
+
+  /// Mois automatique : celui de l'opération, ou le suivant pour un salaire reçu en fin de mois.
+  DateTime autoMonthOf(Tx t) {
+    if (salaryShift && t.date.day >= salaryShiftDay && _isSalary(t)) {
+      return DateTime(t.date.year, t.date.month + 1);
+    }
+    return DateTime(t.date.year, t.date.month);
+  }
+
+  /// Mois dans lequel l'opération compte pour l'analyse et le budget.
+  DateTime analysisMonthOf(Tx t) => t.monthOverride ?? autoMonthOf(t);
+
   Future<void> setMonthOverride(Tx t, DateTime? month) async {
     final m = month == null ? null : DateTime(month.year, month.month);
-    final natural = DateTime(t.date.year, t.date.month);
-    t.monthOverride = (m == null || m == natural) ? null : m;
+    final auto = autoMonthOf(t);
+    t.monthOverride = (m == null || m == auto) ? null : m;
     await db.update('transactions', {'month_override': t.monthOverride == null ? null : ymd(t.monthOverride!)},
         where: 'id = ?', whereArgs: [t.id]);
     notifyListeners();
@@ -626,6 +657,27 @@ class Store extends ChangeNotifier {
     txs.removeWhere((x) => x.id == t.id);
     _reindex();
     notifyListeners();
+  }
+
+  Future<void> setSalaryShift(bool on, {int? day}) async {
+    salaryShift = on;
+    if (day != null) salaryShiftDay = day;
+    await _setSetting('salary_shift', on ? '1' : '0');
+    await _setSetting('salary_shift_day', '$salaryShiftDay');
+    notifyListeners();
+  }
+
+  Future<void> setDailyNotif(bool on, {int? hour}) async {
+    dailyNotif = on;
+    if (hour != null) dailyNotifHour = hour;
+    await _setSetting('daily_notif', on ? '1' : '0');
+    await _setSetting('daily_notif_hour', '$dailyNotifHour');
+    notifyListeners();
+  }
+
+  Future<void> setLastNotifiedBalance(int cents) async {
+    lastNotifiedBalance = cents;
+    await _setSetting('notif_last_balance', '$cents');
   }
 
   Future<void> setBudget(int? cents) async {

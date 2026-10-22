@@ -25,6 +25,8 @@ Le plus simple : les **relevés de compte PDF LCL** (appli ou site LCL → Docum
 - **Remboursements** : depuis une dépense, « Lier un remboursement » (montant partiel possible). La dépense compte pour son net, l'entrée liée n'est plus comptée comme revenu.
 - **Catégories** : catégorisation automatique par mots-clés (enseignes françaises courantes), changement manuel avec création de règle pour les opérations similaires et les imports suivants.
 - **Exclure des analyses** : pour les virements entre ses propres comptes.
+- **Mois d'analyse** : une opération peut compter dans un autre mois ; option pour compter automatiquement le salaire reçu en fin de mois dans le mois suivant.
+- **Solde chaque matin** : synchro en arrière-plan (WorkManager) et notification du solde et des mouvements de la veille.
 
 ## Code
 

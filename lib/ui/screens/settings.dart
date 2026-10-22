@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../background.dart';
 import '../../format.dart';
 import '../../store.dart';
 import '../import_flow.dart';
@@ -52,6 +53,51 @@ class SettingsScreen extends StatelessWidget {
                               : '${store.ebAspsp ?? 'Banque'} connectée',
                   onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BankSyncScreen())),
                 ),
+              ]),
+              const SectionTitle('AUTOMATIQUE'),
+              _Group(children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications_active_outlined, color: AppColors.primary),
+                  title: const Text('Solde chaque matin', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                  subtitle: Text(store.dailyNotif
+                      ? 'Synchro + notification vers ${store.dailyNotifHour} h'
+                      : 'Synchro automatique et notification de ton solde'),
+                  value: store.dailyNotif,
+                  onChanged: (on) => _toggleDaily(context, on),
+                ),
+                if (store.dailyNotif) ...[
+                  _Item(
+                    icon: Icons.schedule_rounded,
+                    title: 'Heure de la notification',
+                    subtitle: '${store.dailyNotifHour} h (Android peut la décaler de quelques minutes)',
+                    onTap: () => _pickHour(context),
+                  ),
+                  _Item(
+                    icon: Icons.play_circle_outline_rounded,
+                    title: 'Tester maintenant',
+                    subtitle: 'Synchronise et envoie la notification tout de suite',
+                    onTap: () async {
+                      await runMorningSync(force: true);
+                      if (context.mounted) toast(context, 'Notification envoyée.');
+                    },
+                  ),
+                ],
+                SwitchListTile(
+                  secondary: const Icon(Icons.work_outline_rounded, color: AppColors.primary),
+                  title: const Text('Salaire de fin de mois', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                  subtitle: Text(store.salaryShift
+                      ? 'Reçu à partir du ${store.salaryShiftDay} : compté dans le mois suivant'
+                      : 'Compter le salaire reçu en fin de mois dans le mois suivant'),
+                  value: store.salaryShift,
+                  onChanged: (on) => store.setSalaryShift(on),
+                ),
+                if (store.salaryShift)
+                  _Item(
+                    icon: Icons.event_rounded,
+                    title: 'À partir du…',
+                    subtitle: 'Le ${store.salaryShiftDay} du mois',
+                    onTap: () => _pickShiftDay(context),
+                  ),
               ]),
               const SectionTitle('BUDGET & CATÉGORIES'),
               _Group(children: [
@@ -116,6 +162,54 @@ class SettingsScreen extends StatelessWidget {
       },
     );
   }
+}
+
+Future<void> _toggleDaily(BuildContext context, bool on) async {
+  if (!on) {
+    await store.setDailyNotif(false);
+    await cancelMorning();
+    return;
+  }
+  final granted = await requestNotificationPermission();
+  if (!granted) {
+    if (context.mounted) toast(context, 'Autorise les notifications de Pécule dans les réglages Android.');
+    return;
+  }
+  await store.setDailyNotif(true);
+  await scheduleMorning(store.dailyNotifHour);
+  if (context.mounted && !store.bankConnected) {
+    toast(context, 'Connecte ta banque (Synchro bancaire) pour un solde à jour chaque matin.');
+  }
+}
+
+Future<void> _pickHour(BuildContext context) async {
+  final h = await showDialog<int>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: const Text('Heure de la notification'),
+      children: [
+        for (final h in [6, 7, 8, 9, 10, 12, 18, 20])
+          SimpleDialogOption(onPressed: () => Navigator.pop(ctx, h), child: Text('$h h')),
+      ],
+    ),
+  );
+  if (h == null) return;
+  await store.setDailyNotif(true, hour: h);
+  await scheduleMorning(h);
+}
+
+Future<void> _pickShiftDay(BuildContext context) async {
+  final d = await showDialog<int>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: const Text('Salaire compté le mois suivant à partir du…'),
+      children: [
+        for (final d in [20, 22, 24, 25, 26, 27, 28])
+          SimpleDialogOption(onPressed: () => Navigator.pop(ctx, d), child: Text('$d du mois')),
+      ],
+    ),
+  );
+  if (d != null) await store.setSalaryShift(true, day: d);
 }
 
 class _Group extends StatelessWidget {

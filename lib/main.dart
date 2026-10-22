@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
+import 'background.dart';
 import 'bank/eb_client.dart';
 import 'store.dart';
 import 'ui/screens/activities.dart';
@@ -16,6 +17,11 @@ import 'ui/widgets.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR');
+  try {
+    await initBackground();
+  } catch (_) {
+    // pas de tâches de fond disponibles : l'app fonctionne quand même
+  }
   Intl.defaultLocale = 'fr_FR';
   runApp(const PeculeApp());
 }
@@ -47,6 +53,7 @@ class _HomeShellState extends State<HomeShell> {
 
   /// Synchro discrète à l'ouverture si la dernière date de plus de 6 h.
   void _autoSync() {
+    if (store.dailyNotif) scheduleMorning(store.dailyNotifHour).catchError((_) {});
     final last = store.ebLastSync;
     if (!store.bankConnected || store.bankExpired) return;
     if (last != null && DateTime.now().difference(last) < const Duration(hours: 6)) return;

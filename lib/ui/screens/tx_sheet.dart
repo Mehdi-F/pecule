@@ -77,8 +77,8 @@ class _TxSheetState extends State<TxSheet> {
             for (final m in options)
               ListTile(
                 title: Text(monthTitle(m)),
-                subtitle: m == natural ? const Text('Mois de l\'opération') : null,
-                trailing: m == t.analysisMonth ? const Icon(Icons.check_rounded, color: AppColors.primary) : null,
+                subtitle: m == natural ? const Text('Mois de l\'opération') : (m == store.autoMonthOf(t) ? const Text('Salaire de fin de mois') : null),
+                trailing: m == store.analysisMonthOf(t) ? const Icon(Icons.check_rounded, color: AppColors.primary) : null,
                 onTap: () => Navigator.pop(ctx, m),
               ),
           ],
@@ -204,7 +204,7 @@ class _TxSheetState extends State<TxSheet> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(monthName(t.analysisMonth),
+                        Text(monthName(store.analysisMonthOf(t)),
                             style: TextStyle(
                                 color: t.monthOverride == null ? AppColors.muted : AppColors.primary,
                                 fontWeight: FontWeight.w600)),

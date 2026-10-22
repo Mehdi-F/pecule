@@ -10,6 +10,9 @@ s = s.replace('android:label="budget_app"', 'android:label="Pécule"')
 if "android.permission.INTERNET" not in s:
     s = s.replace("<application", '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
 
+if "android.permission.POST_NOTIFICATIONS" not in s:
+    s = s.replace("<application", '<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <application', 1)
+
 # Lien pecule://auth : retour automatique dans l'app après validation dans l'appli de la banque.
 # La gestion des liens par Flutter est coupée : c'est le package app_links qui les traite.
 if "pecule" not in s.split("<application", 1)[1]:

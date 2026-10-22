@@ -34,7 +34,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     super.initState();
     _month = _monthOf(DateTime.now());
     if (store.txs.isNotEmpty && store.monthTxs(_month).isEmpty) {
-      _month = store.txs.first.analysisMonth;
+      _month = store.analysisMonthOf(store.txs.first);
     }
   }
 
