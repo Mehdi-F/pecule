@@ -6,6 +6,9 @@ import '../models.dart';
 import '../store.dart';
 import 'theme.dart';
 
+/// Messages globaux (ex. retour de la banque reçu hors de l'écran de synchro).
+final GlobalKey<ScaffoldMessengerState> messengerKey = GlobalKey<ScaffoldMessengerState>();
+
 class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;

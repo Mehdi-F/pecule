@@ -59,6 +59,14 @@ class Store extends ChangeNotifier {
   DateTime? ebLastSync;
   bool syncing = false;
 
+  // Autorisation bancaire en cours : conservée en base pour survivre à un redémarrage
+  // de l'app pendant la validation dans l'appli de la banque.
+  String? _pendingState;
+  String? _pendingAspsp;
+  DateTime? _pendingValidUntil;
+  bool bankCompleting = false;
+  String? _lastAuthCode;
+
   static final Category unknownCategory =
       Category(id: -1, name: 'Sans catégorie', icon: 'other', color: 0xFFB0B7C9, kind: 'both');
 
@@ -158,6 +166,9 @@ class Store extends ChangeNotifier {
     ebAccountName = s['eb_account_name'];
     ebValidUntil = DateTime.tryParse(s['eb_valid_until'] ?? '');
     ebLastSync = DateTime.tryParse(s['eb_last_sync'] ?? '');
+    _pendingState = s['eb_pending_state'];
+    _pendingAspsp = s['eb_pending_aspsp'];
+    _pendingValidUntil = DateTime.tryParse(s['eb_pending_valid_until'] ?? '');
     _reindex();
     if ((int.tryParse(s['rules_version'] ?? '') ?? 1) < defaultRulesVersion) await _upgradeRules();
   }
@@ -488,6 +499,93 @@ class Store extends ChangeNotifier {
     await _setSetting('eb_app_id', ebAppId);
     await _setSetting('eb_key', pem);
     notifyListeners();
+  }
+
+  bool get bankAuthPending => _pendingState != null;
+
+  /// Démarre l'autorisation et renvoie l'URL à ouvrir.
+  Future<String> beginBankAuth({
+    required String aspsp,
+    required String country,
+    required DateTime validUntil,
+    required String redirectUrl,
+  }) async {
+    final state = '${DateTime.now().microsecondsSinceEpoch}';
+    final url = await bankClient.startAuth(
+      aspspName: aspsp,
+      country: country,
+      validUntil: validUntil,
+      redirectUrl: redirectUrl,
+      state: state,
+    );
+    _pendingState = state;
+    _pendingAspsp = aspsp;
+    _pendingValidUntil = validUntil;
+    await _setSetting('eb_pending_state', state);
+    await _setSetting('eb_pending_aspsp', aspsp);
+    await _setSetting('eb_pending_valid_until', validUntil.toIso8601String());
+    notifyListeners();
+    return url;
+  }
+
+  Future<void> cancelBankAuth() async {
+    _pendingState = null;
+    _pendingAspsp = null;
+    _pendingValidUntil = null;
+    for (final k in ['eb_pending_state', 'eb_pending_aspsp', 'eb_pending_valid_until']) {
+      await _setSetting(k, null);
+    }
+    notifyListeners();
+  }
+
+  static String accountLabel(Map<String, dynamic> a) {
+    final name = (a['name'] ?? a['product'] ?? 'Compte').toString();
+    final id = a['account_id'];
+    final iban = id is Map ? id['iban']?.toString() : null;
+    return iban != null && iban.length > 4 ? '$name ·•${iban.substring(iban.length - 4)}' : name;
+  }
+
+  /// Termine la connexion à partir du lien de retour de la banque (…?code=…&state=…),
+  /// puis lance la première synchro. Renvoie null si ce lien a déjà été traité.
+  Future<ImportSummary?> completeBankAuth(Uri link) async {
+    final code = link.queryParameters['code'];
+    if (code == null) {
+      final err = link.queryParameters['error_description'] ?? link.queryParameters['error'] ?? 'connexion annulée';
+      await cancelBankAuth();
+      throw EbException('La banque n\'a pas autorisé l\'accès ($err).');
+    }
+    if (code == _lastAuthCode || bankCompleting) return null;
+    final st = link.queryParameters['state'];
+    if (st != null && _pendingState != null && st != _pendingState) {
+      throw const EbException('Ce lien de retour ne correspond pas à la dernière connexion. Relance « Connecter ma banque ».');
+    }
+    _lastAuthCode = code;
+    bankCompleting = true;
+    notifyListeners();
+    try {
+      final s = await bankClient.createSession(code);
+      final accounts = s['accounts'] is List
+          ? (s['accounts'] as List).whereType<Map<String, dynamic>>().toList()
+          : <Map<String, dynamic>>[];
+      if (accounts.isEmpty) throw const EbException('La banque n\'a partagé aucun compte.');
+      final account = accounts.first;
+      final access = s['access'];
+      final until = access is Map ? DateTime.tryParse('${access['valid_until']}') : null;
+      await saveBankSession(
+        sessionId: '${s['session_id']}',
+        accountUid: '${account['uid']}',
+        accountName: accountLabel(account),
+        aspsp: _pendingAspsp ?? ebAspsp ?? 'Banque',
+        validUntil: until ?? _pendingValidUntil,
+      );
+      await cancelBankAuth();
+      ebLastSync = null; // nouvelle session : on reprend l'historique complet
+      await _setSetting('eb_last_sync', null);
+    } finally {
+      bankCompleting = false;
+      notifyListeners();
+    }
+    return syncBank();
   }
 
   /// Enregistre la session créée après l'autorisation à la banque.

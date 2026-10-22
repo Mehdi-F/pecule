@@ -31,10 +31,7 @@ jobs:
       - name: Générer la plateforme Android
         run: |
           flutter create --project-name budget_app --org com.mehdi --platforms android .
-          sed -i 's/android:label="budget_app"/android:label="Pécule"/' android/app/src/main/AndroidManifest.xml
-          # Accès réseau pour la synchro bancaire (absent du manifeste release par défaut)
-          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          python3 ci/patch_manifest.py android/app/src/main/AndroidManifest.xml
 
       # Même clé de signature à chaque build : les mises à jour s'installent par-dessus sans perdre les données.
       - name: Clé de signature stable

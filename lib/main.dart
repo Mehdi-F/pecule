@@ -1,12 +1,17 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
+import 'bank/eb_client.dart';
 import 'store.dart';
 import 'ui/screens/activities.dart';
 import 'ui/screens/analysis.dart';
 import 'ui/screens/settings.dart';
 import 'ui/theme.dart';
+import 'ui/widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +29,7 @@ class PeculeApp extends StatelessWidget {
       title: 'Pécule',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
+      scaffoldMessengerKey: messengerKey,
       home: const HomeShell(),
     );
   }
@@ -47,6 +53,45 @@ class _HomeShellState extends State<HomeShell> {
     store.syncBank().catchError((_) => const ImportSummary(0, 0, 'Banque', false));
   }
   int _index = 0;
+  final AppLinks _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Retour pecule://auth?code=… après validation dans l'appli de la banque.
+    _linkSub = _appLinks.uriLinkStream.listen(_onLink, onError: (_) {});
+    _appLinks.getInitialLink().then((uri) {
+      if (uri != null) _onLink(uri);
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _linkSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _onLink(Uri uri) async {
+    if (uri.scheme != 'pecule') return;
+    await _init;
+    final messenger = messengerKey.currentState;
+    try {
+      final r = await store.completeBankAuth(uri);
+      if (r != null) {
+        messenger?.showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text('Banque connectée · ${r.added} opération${r.added > 1 ? 's' : ''} récupérée${r.added > 1 ? 's' : ''}.'),
+        ));
+      }
+    } on EbException catch (e) {
+      messenger?.showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 8),
+        content: Text(e.message),
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

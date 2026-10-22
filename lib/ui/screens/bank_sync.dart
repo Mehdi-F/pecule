@@ -4,7 +4,9 @@ import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../bank/eb_client.dart';
@@ -12,7 +14,11 @@ import '../../store.dart';
 import '../theme.dart';
 import '../widgets.dart';
 
+/// Retour par la page web intégrée (interceptée dans Pécule).
 const String bankRedirectUrl = 'https://localhost/pecule';
+
+/// Retour automatique dans Pécule après validation dans l'appli de la banque.
+const String appRedirectUrl = 'pecule://auth';
 const String bankCountry = 'FR';
 
 String _fmt(DateTime d) => DateFormat('d MMM y à HH:mm', 'fr_FR').format(d);
@@ -135,7 +141,8 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
     );
   }
 
-  Future<void> _connect() async {
+  /// [inApp] : page web de la banque dans Pécule ; sinon Chrome, qui peut ouvrir l'appli de la banque.
+  Future<void> _connect({bool inApp = false}) async {
     final client = store.bankClient;
     List<Map<String, dynamic>> banks = const [];
     await _guard('Liste des banques…', () async => banks = await client.aspsps(bankCountry));
@@ -145,77 +152,71 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
     final name = bank['name'] as String;
     final maxSeconds = (bank['maximum_consent_validity'] as num?)?.toInt() ?? 180 * 24 * 3600;
     final validUntil = DateTime.now().add(Duration(seconds: min(maxSeconds, 180 * 24 * 3600) - 3600));
-    final state = DateTime.now().microsecondsSinceEpoch.toString();
 
     String? url;
+    var redirect = inApp ? bankRedirectUrl : appRedirectUrl;
     await _guard('Préparation de la connexion…', () async {
-      url = await client.startAuth(
-        aspspName: name,
-        country: bankCountry,
-        validUntil: validUntil,
-        redirectUrl: bankRedirectUrl,
-        state: state,
-      );
-    });
-    if (url == null || !mounted) return;
-    final back = await Navigator.of(context).push<Uri>(
-      MaterialPageRoute(builder: (_) => BankAuthScreen(url: Uri.parse(url!), bankName: name)),
-    );
-    if (back == null || !mounted) return;
-    final code = back.queryParameters['code'];
-    if (code == null) {
-      await _error('Connexion annulée par la banque (${back.queryParameters['error'] ?? 'sans détail'}).');
-      return;
-    }
-
-    Map<String, dynamic>? session;
-    await _guard('Ouverture de la session…', () async => session = await client.createSession(code));
-    final s = session;
-    if (s == null || !mounted) return;
-    final accounts = (s['accounts'] is List)
-        ? (s['accounts'] as List).whereType<Map<String, dynamic>>().toList()
-        : <Map<String, dynamic>>[];
-    if (accounts.isEmpty) {
-      await _error('La banque n\'a partagé aucun compte.');
-      return;
-    }
-    final account = accounts.length == 1 ? accounts.first : await _pickAccount(accounts);
-    if (account == null || !mounted) return;
-    final access = s['access'];
-    final until = access is Map ? DateTime.tryParse('${access['valid_until']}') : null;
-    await store.saveBankSession(
-      sessionId: '${s['session_id']}',
-      accountUid: '${account['uid']}',
-      accountName: _accountLabel(account),
-      aspsp: name,
-      validUntil: until ?? validUntil,
-    );
-    if (!mounted) return;
-    await _guard('Première synchro (jusqu\'à un an d\'historique)…', () async {
-      final r = await store.syncBank();
-      if (mounted) {
-        toast(context, '${r.added} opérations récupérées${r.duplicates > 0 ? ', ${r.duplicates} déjà présentes' : ''}.');
+      try {
+        url = await store.beginBankAuth(aspsp: name, country: bankCountry, validUntil: validUntil, redirectUrl: redirect);
+      } on EbException catch (e) {
+        // Adresse de retour pecule://auth pas encore autorisée chez Enable Banking : repli sur la page web.
+        if (inApp || !(e.status == 400 || e.status == 422)) rethrow;
+        redirect = bankRedirectUrl;
+        url = await store.beginBankAuth(aspsp: name, country: bankCountry, validUntil: validUntil, redirectUrl: redirect);
       }
     });
-  }
+    if (url == null || !mounted) return;
 
-  String _accountLabel(Map<String, dynamic> a) {
-    final name = (a['name'] ?? a['product'] ?? 'Compte').toString();
-    final id = a['account_id'];
-    final iban = id is Map ? id['iban']?.toString() : null;
-    return iban != null && iban.length > 4 ? '$name ·•${iban.substring(iban.length - 4)}' : name;
-  }
+    if (inApp) {
+      final back = await Navigator.of(context).push<Uri>(
+        MaterialPageRoute(builder: (_) => BankAuthScreen(url: Uri.parse(url!), bankName: name)),
+      );
+      if (!mounted) return;
+      if (back == null) {
+        await store.cancelBankAuth();
+        return;
+      }
+      await _finish(back);
+      return;
+    }
 
-  Future<Map<String, dynamic>?> _pickAccount(List<Map<String, dynamic>> accounts) => showDialog<Map<String, dynamic>>(
+    if (redirect != appRedirectUrl && mounted) {
+      await showDialog<void>(
         context: context,
-        builder: (ctx) => SimpleDialog(
-          title: const Text('Quel compte suivre ?'),
-          children: [
-            for (final a in accounts)
-              SimpleDialogOption(onPressed: () => Navigator.pop(ctx, a), child: Text(_accountLabel(a))),
-          ],
+        builder: (ctx) => AlertDialog(
+          title: const Text('Retour manuel'),
+          content: const Text(
+            'L\'adresse pecule://auth n\'est pas encore autorisée dans ton application Enable Banking. '
+            'Après avoir validé chez ta banque, tu arriveras sur une page « localhost » introuvable : '
+            'copie son adresse, reviens ici et touche « Coller le lien de retour ».',
+          ),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Compris'))],
         ),
       );
+    }
+    final ok = await launchUrl(Uri.parse(url!), mode: LaunchMode.externalApplication);
+    if (!ok && mounted) await _error('Impossible d\'ouvrir le navigateur.');
+  }
+
+  Future<void> _finish(Uri link) => _guard('Connexion au compte…', () async {
+        final r = await store.completeBankAuth(link);
+        if (r != null && mounted) {
+          toast(context, '${r.added} opérations récupérées${r.duplicates > 0 ? ', ${r.duplicates} déjà présentes' : ''}.');
+        }
+      });
+
+  Future<void> _pasteLink() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final m = RegExp(r'\S*[?&](code|error)=[^\s]+').firstMatch(data?.text ?? '');
+    if (m == null) {
+      if (mounted) {
+        await _error('Le presse-papiers ne contient pas de lien de retour. Copie l\'adresse complète de la page '
+            '« localhost » (elle contient « code= »), puis réessaie.');
+      }
+      return;
+    }
+    await _finish(Uri.parse(m.group(0)!));
+  }
 
   Future<Map<String, dynamic>?> _pickBank(List<Map<String, dynamic>> banks) {
     var query = 'LCL';
@@ -369,6 +370,42 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
     if (!store.hasBankApp) {
       return const Text('Importe d\'abord la clé de ton application.', style: TextStyle(color: AppColors.muted));
     }
+    if (store.bankCompleting) {
+      return const Row(
+        children: [
+          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 12),
+          Expanded(child: Text('Connexion au compte en cours…')),
+        ],
+      );
+    }
+    if (store.bankAuthPending) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.hourglass_top_rounded, color: AppColors.primary),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text('En attente de ta validation chez la banque. Une fois validé, tu reviendras ici automatiquement.',
+                    style: TextStyle(height: 1.4)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _pasteLink,
+            icon: const Icon(Icons.content_paste_rounded),
+            label: const Text('Coller le lien de retour'),
+          ),
+          TextButton(
+            onPressed: _busy ? null : () => store.cancelBankAuth(),
+            child: const Text('Annuler'),
+          ),
+        ],
+      );
+    }
     if (!store.bankConnected) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -377,9 +414,13 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
               style: TextStyle(color: AppColors.muted, height: 1.4)),
           const SizedBox(height: 14),
           FilledButton.icon(
-            onPressed: _busy ? null : _connect,
+            onPressed: _busy ? null : () => _connect(inApp: true),
             icon: const Icon(Icons.account_balance_rounded),
             label: const Text('Connecter ma banque'),
+          ),
+          TextButton(
+            onPressed: _busy ? null : () => _connect(),
+            child: const Text('Passer par l\'appli de ma banque (via Chrome)'),
           ),
         ],
       );
@@ -422,9 +463,13 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
           ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: _busy ? null : _connect,
+          onPressed: _busy ? null : () => _connect(inApp: true),
           icon: const Icon(Icons.refresh_rounded),
           label: Text(expired ? 'Reconnecter ma banque' : 'Renouveler l\'accès'),
+        ),
+        TextButton(
+          onPressed: _busy ? null : () => _connect(),
+          child: const Text('Renouveler via l\'appli de ma banque (Chrome)'),
         ),
         TextButton(
           onPressed: _busy
