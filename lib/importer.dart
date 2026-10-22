@@ -121,9 +121,9 @@ int? parseAmountCents(String s) {
   return neg ? -v : v;
 }
 
-ParsedTx _make(DateTime date, int cents, String display, String raw, Map<String, int> occ,
-    {String? fixedHash}) {
-  final base = '${ymd(date)}|$cents|${normalize(raw)}';
+ParsedTx makeParsedTx(DateTime date, int cents, String display, String raw, Map<String, int> occ,
+    {String? fixedHash, String? hashLabel}) {
+  final base = '${ymd(date)}|$cents|${normalize(hashLabel ?? raw)}';
   String hash;
   if (fixedHash != null) {
     hash = fixedHash;
@@ -358,7 +358,7 @@ ParseResult parseCsv(String text) {
     final others = mapping.extra.map(cell).map((s) => s.trim()).where((s) => s.isNotEmpty);
     var raw = [main, ...others].where((s) => s.isNotEmpty).join(' ');
     if (raw.isEmpty) raw = 'Opération';
-    out.add(_make(date, amount, main.isNotEmpty ? main : raw, raw, occ));
+    out.add(makeParsedTx(date, amount, main.isNotEmpty ? main : raw, raw, occ));
   }
   if (out.isEmpty) {
     throw const ImportException('Aucune opération trouvée dans le fichier. $_formatHelp');
@@ -408,7 +408,7 @@ ParseResult parseOfx(String text) {
     final display = name.isNotEmpty ? name : (memo.isNotEmpty ? memo : 'Opération');
     final raw = (memo.isNotEmpty && memo != name) ? '$display $memo'.trim() : display;
     final fitid = _tag(chunk, 'FITID');
-    out.add(_make(date, amount, display, raw, occ,
+    out.add(makeParsedTx(date, amount, display, raw, occ,
         fixedHash: fitid == null ? null : 'ofx|$fitid|${ymd(date)}|$amount'));
   }
   if (out.isEmpty) throw const ImportException('Aucune opération trouvée dans le fichier OFX.');

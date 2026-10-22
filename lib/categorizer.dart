@@ -33,31 +33,37 @@ const List<CategorySeed> defaultCategories = [
 
 const Map<String, List<String>> _keywords = {
   'Alimentation': [
+    'MATCH', 
     'CARREFOUR', 'LECLERC', 'AUCHAN', 'LIDL', 'ALDI', 'INTERMARCHE', 'MONOPRIX', 'FRANPRIX',
     'CASINO', 'SUPER U', 'HYPER U', 'NETTO', 'PICARD', 'GRAND FRAIS', 'BIOCOOP', 'CORA', 'SPAR',
     'LEADER PRICE', 'PROXI', 'BOULANGERIE', 'MARCHE U', 'NATURALIA', 'G20',
   ],
   'Restaurants': [
+    'RESTAURATION', 'DONUTS', 
     'RESTAURANT', 'MCDONALD', 'MCDONALDS', 'MC DO', 'BURGER KING', 'KFC', 'QUICK', 'SUBWAY',
     'STARBUCKS', 'UBER EATS', 'UBER *EATS', 'UBEREATS', 'DELIVEROO', 'JUST EAT', 'DOMINOS',
     'PIZZA', 'SUSHI', 'BRASSERIE', 'KEBAB', 'TACOS', 'O TACOS', 'BAGELSTEIN', 'PAUL',
   ],
   'Transport': [
+    'KEOLIS', 'ILEVIA', 'METRO', 
     'SNCF', 'RATP', 'NAVIGO', 'TRANSILIEN', 'UBER', 'BOLT', 'BLABLACAR', 'TOTALENERGIES', 'ESSO',
     'SHELL', 'AVIA', 'PEAGE', 'AUTOROUTE', 'VINCI', 'SANEF', 'APRR', 'PARKING', 'LIME', 'TCL',
     'TISSEO', 'RTM', 'OUIGO', 'TRAINLINE', 'HEETCH', 'FREENOW',
   ],
   'Logement': [
+    'TOTALENERGIES ELECTRICITE', 'IMMOB', 
     'LOYER', 'EDF', 'ENGIE', 'VEOLIA', 'SUEZ', 'GRDF', 'ASSURANCE HABITATION', 'FONCIA',
     'NEXITY', 'EKWATEUR', 'OHM ENERGIE', 'SYNDIC',
   ],
   'Abonnements': [
+    'CLOUDFLARE', 'DEKUPLE', 'ADLPARTNER', 
     'NETFLIX', 'SPOTIFY', 'DEEZER', 'DISNEY', 'CANAL', 'AMAZON PRIME', 'PRIME VIDEO', 'APPLE.COM',
     'APPLE COM', 'ICLOUD', 'GOOGLE', 'YOUTUBE', 'FREE MOBILE', 'FREE TELECOM', 'SFR', 'ORANGE',
     'BOUYGUES', 'SOSH', 'RED BY SFR', 'B&YOU', 'OPENAI', 'CHATGPT', 'ANTHROPIC', 'CLAUDE.AI',
     'CRUNCHYROLL', 'PLAYSTATION PLUS', 'XBOX GAME PASS',
   ],
   'Shopping': [
+    'LEGO', 'SCALAPAY', 'KLARNA', 'AMZ', 
     'AMAZON', 'AMZN', 'FNAC', 'DARTY', 'BOULANGER', 'ZARA', 'H&M', 'PRIMARK', 'DECATHLON', 'IKEA',
     'LEROY MERLIN', 'CASTORAMA', 'ACTION', 'CDISCOUNT', 'ZALANDO', 'SHEIN', 'VINTED', 'ALIEXPRESS',
     'TEMU', 'SEPHORA', 'KIABI', 'JD SPORTS', 'FOOT LOCKER', 'NIKE', 'UNIQLO',
@@ -67,18 +73,24 @@ const Map<String, List<String>> _keywords = {
     'MUTUELLE', 'DOCTOLIB', 'HOPITAL', 'CLINIQUE',
   ],
   'Loisirs': [
+    'LIVE NATION', 
     'CINEMA', 'UGC', 'PATHE', 'GAUMONT', 'MK2', 'STEAM', 'PLAYSTATION', 'NINTENDO', 'XBOX',
     'EPIC GAMES', 'TICKETMASTER', 'BASIC FIT', 'FITNESS PARK', 'AIRBNB', 'BOOKING', 'FNAC SPECTACLES',
   ],
   'Banque & frais': [
+    'ASSURANCE MOYEN DE PAIEMENT', 
     'FRAIS', 'COTISATION', 'COMMISSION', 'AGIOS', 'INTERETS DEBITEURS', 'OFFRE GROUPEE',
   ],
-  'Impôts & taxes': ['DGFIP', 'IMPOT', 'IMPOTS', 'TRESOR PUBLIC', 'AMENDE', 'ANTAI', 'URSSAF'],
+  'Impôts & taxes': [
+    'FINANCES PUBLIQUES', 'FINANCES PUBLIQUE', 'DGFIP', 'IMPOT', 'IMPOTS', 'TRESOR PUBLIC', 'AMENDE', 'ANTAI', 'URSSAF'],
   'Retraits': ['RETRAIT', 'DAB'],
-  'Salaire': ['SALAIRE', 'PAIE', 'PAYE'],
-  'Remboursements': ['CPAM', 'AMELI', 'REMBOURSEMENT', 'REMB'],
+  'Salaire': [
+    'SALARY', 'SALAIRE', 'PAIE', 'PAYE'],
+  'Remboursements': [
+    'SIACI', 'WORKLIFE BENEFITS', 'CPAM', 'AMELI', 'REMBOURSEMENT', 'REMB'],
   'Autres revenus': ['CAF'],
-  'Virements': ['VIR', 'VIREMENT', 'LYDIA', 'WERO', 'PAYLIB'],
+  'Virements': [
+    'REVOLUT', 'LIVRET', 'ASSURANCE VIE', 'VIR', 'VIREMENT', 'LYDIA', 'WERO', 'PAYLIB'],
 };
 
 class RuleSeed {
@@ -95,6 +107,9 @@ List<RuleSeed> get defaultRuleSeeds => [
     ];
 
 const int userRulePriority = 10;
+
+/// À incrémenter quand on ajoute des mots-clés par défaut (migration des installations existantes).
+const int defaultRulesVersion = 2;
 
 List<Rule> sortRules(Iterable<Rule> rules) => rules.toList()
   ..sort((a, b) {

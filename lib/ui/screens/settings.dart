@@ -27,7 +27,7 @@ class SettingsScreen extends StatelessWidget {
                 _Item(
                   icon: Icons.file_upload_outlined,
                   title: 'Importer un relevé',
-                  subtitle: 'CSV ou OFX · ${store.txs.length} opérations en mémoire',
+                  subtitle: 'Relevé PDF LCL, CSV ou OFX · ${store.txs.length} opérations',
                   onTap: () => runImport(context),
                 ),
                 _Item(
@@ -61,9 +61,10 @@ class SettingsScreen extends StatelessWidget {
               const SectionTitle('AIDE'),
               const AppCard(
                 child: Text(
-                  'Depuis le site LCL (sur ordinateur ou en version web), télécharge l\'historique de ton compte '
-                  'au format CSV ou OFX, puis importe-le ici. Tu peux réimporter des périodes qui se chevauchent : '
-                  'les doublons sont ignorés. Garde le même format d\'un import à l\'autre.\n\n'
+                  'Le plus simple : télécharge tes relevés de compte PDF depuis l\'appli ou le site LCL '
+                  '(Documents → Relevés de compte de dépôt) et importe-les ici, plusieurs à la fois si tu veux. '
+                  'Le solde de fin de relevé est repris automatiquement. Les fichiers CSV et OFX sont aussi acceptés. '
+                  'Réimporter une période déjà importée ne crée pas de doublons (garde le même format d\'un import à l\'autre).\n\n'
                   'Pour lier un remboursement : ouvre une dépense (ou l\'entrée d\'argent), puis « Lier un remboursement ». '
                   'Les analyses et le budget comptent alors le montant net.',
                   style: TextStyle(color: AppColors.muted, height: 1.4),

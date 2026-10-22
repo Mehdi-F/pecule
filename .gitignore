@@ -9,3 +9,7 @@ build/
 .idea/
 .vscode/
 local.properties
+
+# Jamais de vrais relevés dans le repo (seul le relevé fictif de test est versionné)
+*.pdf
+!test/fixtures/releve_lcl_fictif.pdf

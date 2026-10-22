@@ -32,7 +32,7 @@ class ActivitiesScreen extends StatelessWidget {
                   icon: Icons.account_balance_wallet_outlined,
                   leading: const AppLogo(size: 96),
                   title: 'Bienvenue dans Pécule',
-                  message: 'Importe un relevé CSV ou OFX exporté depuis ton espace LCL pour commencer.',
+                  message: 'Importe tes relevés de compte PDF LCL (ou un CSV / OFX) pour commencer.',
                   action: FilledButton.icon(
                     onPressed: () => runImport(context),
                     icon: const Icon(Icons.file_upload_outlined),

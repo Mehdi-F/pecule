@@ -7,47 +7,59 @@ import '../importer.dart';
 import '../store.dart';
 import 'widgets.dart';
 
+String _plural(int n, String word) => '$n $word${n > 1 ? 's' : ''}';
+
+/// Import d'un ou plusieurs fichiers (relevés PDF LCL, CSV ou OFX).
 Future<void> runImport(BuildContext context) async {
-  final res = await FilePicker.platform.pickFiles(type: FileType.any, withData: true);
-  if (res == null || res.files.isEmpty) return;
-  final f = res.files.first;
-  List<int>? bytes = f.bytes;
-  if (bytes == null && f.path != null) bytes = await File(f.path!).readAsBytes();
-  if (!context.mounted) return;
-  if (bytes == null) {
-    toast(context, 'Impossible de lire le fichier.');
-    return;
-  }
-  try {
-    final r = await store.importBytes(bytes);
-    if (!context.mounted) return;
-    final lines = <String>[
-      '${r.added} nouvelle${r.added > 1 ? 's' : ''} opération${r.added > 1 ? 's' : ''} importée${r.added > 1 ? 's' : ''}.',
-      if (r.duplicates > 0) '${r.duplicates} déjà présente${r.duplicates > 1 ? 's' : ''}, ignorée${r.duplicates > 1 ? 's' : ''}.',
-      if (r.balanceUpdated) 'Solde du compte mis à jour depuis le fichier.',
-    ];
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Import ${r.format} terminé'),
-        content: Text(lines.join('\n')),
-        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
-      ),
-    );
-    if (!context.mounted) return;
-    if (store.anchorBalanceCents == null && store.txs.isNotEmpty) {
-      await editBalance(context);
+  final res = await FilePicker.platform.pickFiles(type: FileType.any, withData: true, allowMultiple: true);
+  if (res == null || res.files.isEmpty || !context.mounted) return;
+
+  var added = 0, duplicates = 0;
+  var balanceUpdated = false;
+  final errors = <String>[];
+
+  // Petit indicateur pendant la lecture (un relevé PDF peut prendre une seconde).
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  );
+  for (final f in res.files) {
+    try {
+      List<int>? bytes = f.bytes;
+      if (bytes == null && f.path != null) bytes = await File(f.path!).readAsBytes();
+      if (bytes == null) throw const ImportException('fichier illisible');
+      final r = await store.importBytes(bytes);
+      added += r.added;
+      duplicates += r.duplicates;
+      balanceUpdated |= r.balanceUpdated;
+    } on ImportException catch (e) {
+      errors.add('${f.name} : ${e.message}');
+    } catch (e) {
+      errors.add('${f.name} : erreur inattendue ($e)');
     }
-  } on ImportException catch (e) {
-    if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Import impossible'),
-        content: Text(e.message),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
-      ),
-    );
+  }
+  if (!context.mounted) return;
+  Navigator.of(context, rootNavigator: true).pop();
+
+  final ok = res.files.length - errors.length;
+  final lines = <String>[
+    if (ok > 0) '${_plural(added, 'nouvelle opération')} importée${added > 1 ? 's' : ''}.',
+    if (duplicates > 0) '${_plural(duplicates, 'opération')} déjà présente${duplicates > 1 ? 's' : ''}, ignorée${duplicates > 1 ? 's' : ''}.',
+    if (balanceUpdated) 'Solde du compte mis à jour depuis le relevé.',
+    if (errors.isNotEmpty) ...['', ...errors],
+  ];
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(errors.isEmpty ? 'Import terminé' : (ok > 0 ? 'Import partiel' : 'Import impossible')),
+      content: SingleChildScrollView(child: Text(lines.join('\n'))),
+      actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+    ),
+  );
+  if (!context.mounted) return;
+  if (store.anchorBalanceCents == null && store.txs.isNotEmpty) {
+    await editBalance(context);
   }
 }
 

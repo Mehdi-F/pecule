@@ -28,7 +28,7 @@ final List<RegExp> _prefixes = [
   RegExp(r'^(PAIEMENT\s+)?(PAR\s+)?(CB|CARTE)(\s+X?\d{4})?\s+', caseSensitive: false),
   RegExp(r'^(PRLV|PRELEVEMENT|PRÉLÈVEMENT)(\s+SEPA)?\s+', caseSensitive: false),
   RegExp(
-      r'^(VIR|VIREMENT)(\s+SEPA)?(\s+INST(ANTANE)?)?(\s+(RECU|REÇU|EMIS|ÉMIS))?(\s+(DE|A|À|VERS))?\s+',
+      r'^(VIR\.?\s?PERMANENT|VIREMENT|VIR)(\s+SEPA)?(\s+INST(ANTANE)?)?(\s+(RECU|REÇU|EMIS|ÉMIS))?(\s+(DE|A|À|VERS))?\s+',
       caseSensitive: false),
 ];
 

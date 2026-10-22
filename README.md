@@ -12,11 +12,11 @@ Les builds sont toutes signées avec la même clé (`ci/debug.keystore`), donc u
 
 ## Importer ses opérations
 
-Depuis l'espace client LCL (site web), télécharge l'historique du compte en **CSV** ou **OFX**, puis *Activités → icône d'import*.
+Le plus simple : les **relevés de compte PDF LCL** (appli ou site LCL → Documents → Relevés de compte de dépôt). Dans Pécule : *Activités → icône d'import*, plusieurs relevés d'un coup si besoin.
 
-- Le format CSV est détecté automatiquement (séparateur, en-têtes, colonnes montant ou débit/crédit, encodage).
-- L'OFX renseigne aussi le solde du compte.
-- Réimporter une période qui chevauche la précédente ne crée pas de doublons. Garde le même format d'un import à l'autre.
+- Le PDF est lu sur le téléphone (rien n'est envoyé nulle part) ; le solde de fin de relevé est repris automatiquement.
+- Les fichiers **CSV** et **OFX** sont aussi acceptés (détection automatique des colonnes, de l'encodage, débit/crédit).
+- Réimporter une période déjà importée ne crée pas de doublons. Garde le même format d'un import à l'autre.
 
 ## Fonctionnalités
 
@@ -31,10 +31,12 @@ Depuis l'espace client LCL (site web), télécharge l'historique du compte en **
 ```
 lib/
   importer.dart      parsing CSV / OFX (pur Dart, testé)
+  lcl_pdf.dart       lecture des relevés PDF LCL à partir des mots positionnés
+  pdf_words.dart     extraction du texte PDF (syncfusion_flutter_pdf, licence communautaire)
   categorizer.dart   catégories et mots-clés par défaut
   store.dart         SQLite + état de l'app (ChangeNotifier)
   ui/screens/        Activités, Analyse, Réglages, fiche opération
-test/                tests du parsing et de la catégorisation
+test/                tests du parsing (dont un relevé LCL fictif) et de la catégorisation
 ```
 
 Le dossier `android/` est généré par `flutter create` dans la CI. En local : `flutter create --project-name budget_app --org com.mehdi --platforms android .` puis `flutter run`.

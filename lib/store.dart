@@ -1,10 +1,11 @@
-import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:flutter/foundation.dart' show ChangeNotifier, compute;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import 'categorizer.dart';
 import 'importer.dart';
 import 'models.dart';
+import 'pdf_words.dart';
 import 'text_utils.dart';
 
 class ImportSummary {
@@ -81,6 +82,32 @@ class Store extends ChangeNotifier {
     }
     await db.insert('settings', {'key': 'fallback_expense', 'value': '${ids[expenseFallbackName]}'});
     await db.insert('settings', {'key': 'fallback_income', 'value': '${ids[incomeFallbackName]}'});
+    await db.insert('settings', {'key': 'rules_version', 'value': '$defaultRulesVersion'});
+  }
+
+  /// Ajoute les nouvelles règles par défaut d'une mise à jour, puis recatégorise
+  /// les opérations qui n'ont pas été rangées à la main.
+  Future<void> _upgradeRules() async {
+    final byName = {for (final c in categories.values) c.name: c.id};
+    final known = rules.map((r) => r.keyword.toUpperCase()).toSet();
+    await db.transaction((txn) async {
+      for (final seed in defaultRuleSeeds) {
+        final cid = byName[seed.category];
+        if (cid == null || known.contains(seed.keyword.toUpperCase())) continue;
+        final id = await txn.insert('rules', {'keyword': seed.keyword, 'category_id': cid, 'priority': seed.priority});
+        rules.add(Rule(id: id, keyword: seed.keyword, categoryId: cid, priority: seed.priority));
+      }
+      final sorted = sortRules(rules);
+      for (final t in txs) {
+        if (t.categoryManual) continue;
+        final cid = categorize(t.rawLabel, sorted) ?? (t.isExpense ? _fallbackExpense : _fallbackIncome);
+        if (cid == null || cid == t.categoryId) continue;
+        t.categoryId = cid;
+        await txn.update('transactions', {'category_id': cid}, where: 'id = ?', whereArgs: [t.id]);
+      }
+      await txn.insert('settings', {'key': 'rules_version', 'value': '$defaultRulesVersion'},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   Future<void> _loadAll() async {
@@ -111,6 +138,7 @@ class Store extends ChangeNotifier {
     _fallbackExpense = int.tryParse(s['fallback_expense'] ?? '');
     _fallbackIncome = int.tryParse(s['fallback_income'] ?? '');
     _reindex();
+    if ((int.tryParse(s['rules_version'] ?? '') ?? 1) < defaultRulesVersion) await _upgradeRules();
   }
 
   void _reindex() {
@@ -229,8 +257,19 @@ class Store extends ChangeNotifier {
 
   // ---------------------------------------------------------------- écriture
 
+  /// Le PDF est lu hors du fil de l'interface ; repli en direct si l'isolate échoue.
+  Future<ParseResult> _parsePdf(List<int> bytes) async {
+    try {
+      return await compute(parseLclPdfBytes, bytes);
+    } on ImportException {
+      rethrow;
+    } catch (_) {
+      return parseLclPdfBytes(bytes);
+    }
+  }
+
   Future<ImportSummary> importBytes(List<int> bytes) async {
-    final res = parseStatement(bytes);
+    final res = isPdf(bytes) ? await _parsePdf(bytes) : parseStatement(bytes);
     final existing = txs.map((t) => t.hash).toSet();
     final sorted = sortedRules;
     var dup = 0;
