@@ -23,6 +23,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Cache des dépendances Gradle : builds plus rapides et moins de requêtes vers Maven Central.
+      - uses: gradle/actions/setup-gradle@v4
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -53,7 +56,9 @@ jobs:
       - name: Build APK
         run: |
           set -o pipefail
-          flutter build apk --release --build-number=${{ github.run_number }} 2>&1 | tee build.log
+          # Un nouvel essai si un dépôt Maven refuse temporairement (erreur 429).
+          flutter build apk --release --build-number=${{ github.run_number }} 2>&1 | tee build.log || \
+            (sleep 60 && flutter build apk --release --build-number=${{ github.run_number }} 2>&1 | tee build.log)
 
       - name: Remonter les erreurs
         if: always()
