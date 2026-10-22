@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
