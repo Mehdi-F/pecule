@@ -230,7 +230,7 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
           final q = query.toLowerCase();
           final shown = banks.where((b) => '${b['name']}'.toLowerCase().contains(q)).toList();
           return Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
+            padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(ctx).viewInsets.bottom + MediaQuery.paddingOf(ctx).bottom + 16),
             child: Column(
               children: [
                 TextFormField(
@@ -275,7 +275,7 @@ class _BankSyncScreenState extends State<BankSyncScreen> {
           body: Stack(
             children: [
               ListView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
                 children: [
                   const SectionTitle('1 · APPLICATION ENABLE BANKING'),
                   AppCard(child: store.hasBankApp ? _appReady() : _appSetup()),

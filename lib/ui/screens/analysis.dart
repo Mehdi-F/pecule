@@ -46,7 +46,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         return Scaffold(
           appBar: AppBar(title: const Text('Analyse')),
           body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
             children: [
               AppCard(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
@@ -311,7 +311,7 @@ class CategoryTxScreen extends StatelessWidget {
             title: Text(category.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.ink)),
           ),
           body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
             children: [
               AppCard(
                 child: Row(

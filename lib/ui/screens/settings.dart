@@ -21,7 +21,7 @@ class SettingsScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: const Text('Réglages')),
           body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
             children: [
               const SectionTitle('DONNÉES'),
               _Group(children: [
@@ -161,7 +161,7 @@ class RulesScreen extends StatelessWidget {
             title: const Text('Règles', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.ink)),
           ),
           body: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
             itemCount: rules.length + 1,
             itemBuilder: (context, i) {
               if (i == 0) {

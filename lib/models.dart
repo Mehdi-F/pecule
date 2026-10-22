@@ -29,7 +29,7 @@ class Tx {
   final String hash;
   final DateTime date;
   final int amountCents;
-  final String label;
+  String label;
   final String rawLabel;
   int? categoryId;
   bool categoryManual;

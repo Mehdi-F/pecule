@@ -8,6 +8,12 @@ void main() {
     expect(cleanLabel('VIR SEPA RECU LYDIA'), 'Lydia');
     expect(cleanLabel('VIRGIN MOBILE'), 'Virgin Mobile');
     expect(cleanLabel('RETRAIT DAB'), 'Retrait Dab');
+    expect(
+        cleanLabel('PRELVT SEPA RECU D/O CONFRERE PRLV SEPA WORKLIFE ICS.NL48ZZZ342764500000 .RUM.S2GGQTZFCF2KBVQ9 SDR629392497866'),
+        'Worklife');
+    expect(cleanLabel('Prelvt Sepa Recu D/o Confrere Prlv Sepa Worklife Ics.nl48zzz342764500000 .rum.s2ggqtzfcf2kbvq9 Sdr629392497866'),
+        'Worklife');
+    expect(cleanLabel('CB SUSHI 8 20/10/26'), 'Sushi 8');
   });
 
   test('mot-clé marchand', () {

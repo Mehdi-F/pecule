@@ -97,10 +97,16 @@ class _TxSheetState extends State<TxSheet> {
         final cat = store.categoryOf(t);
         final reimb = t.isExpense ? store.reimbursed(t) : store.allocated(t);
         final txLinks = store.linksOf(t);
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        // Feuille déplaçable : on la tire vers le haut pour l'agrandir ; rien sous la barre de navigation.
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.85,
+          minChildSize: 0.3,
+          maxChildSize: 1,
+          builder: (context, scroll) => SingleChildScrollView(
+            controller: scroll,
+            padding: EdgeInsets.fromLTRB(
+                20, 12, 20, 24 + MediaQuery.paddingOf(context).bottom + MediaQuery.viewInsetsOf(context).bottom),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -337,7 +343,7 @@ class _LinkPickerScreenState extends State<LinkPickerScreen> {
                         : 'Il faut une dépense pas encore entièrement remboursée.',
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.paddingOf(context).bottom),
                     itemCount: shown.length,
                     itemBuilder: (_, i) {
                       final c = shown[i];
@@ -375,11 +381,25 @@ Future<int?> pickCategory(BuildContext context, {int? selected}) {
     useSafeArea: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-    builder: (ctx) => SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+    builder: (ctx) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.65,
+      minChildSize: 0.3,
+      maxChildSize: 1,
+      builder: (ctx, scroll) => SingleChildScrollView(
+      controller: scroll,
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 24 + MediaQuery.paddingOf(ctx).bottom),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
           const Text('Catégorie', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
           const SizedBox(height: 16),
@@ -406,6 +426,7 @@ Future<int?> pickCategory(BuildContext context, {int? selected}) {
           ),
         ],
       ),
+    ),
     ),
   );
 }

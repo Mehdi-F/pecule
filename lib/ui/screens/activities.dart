@@ -54,7 +54,7 @@ class ActivitiesScreen extends StatelessWidget {
                   },
                   child: ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                    padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
                     itemCount: days.length + 1,
                     itemBuilder: (context, i) {
                       if (i == 0) return _BalanceCard();

@@ -26,19 +26,44 @@ DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
 final List<RegExp> _prefixes = [
   RegExp(r'^(PAIEMENT\s+)?(PAR\s+)?(CB|CARTE)(\s+X?\d{4})?\s+', caseSensitive: false),
+  RegExp(r'^PRELVT\s+SEPA(\s+RECU)?(\s+D/O\s+CONFRERE)?\s+', caseSensitive: false),
   RegExp(r'^(PRLV|PRELEVEMENT|PRÉLÈVEMENT)(\s+SEPA)?\s+', caseSensitive: false),
   RegExp(
       r'^(VIR\.?\s?PERMANENT|VIREMENT|VIR)(\s+SEPA)?(\s+INST(ANTANE)?)?(\s+(RECU|REÇU|EMIS|ÉMIS))?(\s+(DE|A|À|VERS))?\s+',
       caseSensitive: false),
 ];
 
-/// Libellé lisible : retire les préfixes bancaires (CB, PRLV SEPA…) et la date finale.
+final RegExp _innerPrlv = RegExp(r'\b(PRLV|PRELEVEMENT)\s+SEPA\s+', caseSensitive: false);
+final RegExp _junkToken = RegExp(r'^(\.?(ICS|RUM|SDR|REF|NUM)[.:]?\S*\d\S*|\S*\d{8,}\S*)$', caseSensitive: false);
+final RegExp _hasDigit = RegExp(r'\d');
+final RegExp _hasLetter = RegExp(r'[A-Za-z]');
+
+/// Références techniques (ICS, RUM, numéros de mandat…) sans intérêt pour la lecture.
+bool _isJunk(String w) =>
+    _junkToken.hasMatch(w) || (w.length >= 14 && _hasDigit.hasMatch(w) && _hasLetter.hasMatch(w));
+
+/// Libellé lisible : retire les préfixes bancaires (CB, PRLV SEPA…), les références techniques
+/// et la date finale.
 String cleanLabel(String raw) {
   var s = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-  for (final p in _prefixes) {
-    final n = s.replaceFirst(p, '');
-    if (n.trim().isNotEmpty) s = n;
+  for (var round = 0; round < 4; round++) {
+    var changed = false;
+    for (final p in _prefixes) {
+      final n = s.replaceFirst(p, '');
+      if (n != s && n.trim().isNotEmpty) {
+        s = n;
+        changed = true;
+      }
+    }
+    if (!changed) break;
   }
+  final inner = _innerPrlv.allMatches(s).toList();
+  if (inner.isNotEmpty) {
+    final rest = s.substring(inner.last.end).trim();
+    if (rest.isNotEmpty) s = rest;
+  }
+  final kept = s.split(' ').where((w) => w.isNotEmpty && !_isJunk(w)).join(' ').trim();
+  if (kept.isNotEmpty) s = kept;
   s = s.replaceFirst(RegExp(r'\s+\d{2}[/.]\d{2}([/.]\d{2,4})?$'), '').trim();
   if (s.isEmpty) s = raw.trim();
   return _titleCase(s);

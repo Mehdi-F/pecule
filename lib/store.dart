@@ -106,6 +106,19 @@ class Store extends ChangeNotifier {
     await db.insert('settings', {'key': 'rules_version', 'value': '$defaultRulesVersion'});
   }
 
+  /// Applique le nettoyage de libellés amélioré aux opérations déjà enregistrées.
+  Future<void> _relabel() async {
+    await db.transaction((txn) async {
+      for (final t in txs) {
+        final clean = cleanLabel(t.label);
+        if (clean == t.label) continue;
+        t.label = clean;
+        await txn.update('transactions', {'label': clean}, where: 'id = ?', whereArgs: [t.id]);
+      }
+      await txn.insert('settings', {'key': 'labels_version', 'value': '2'}, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
   /// Ajoute les nouvelles règles par défaut d'une mise à jour, puis recatégorise
   /// les opérations qui n'ont pas été rangées à la main.
   Future<void> _upgradeRules() async {
@@ -171,6 +184,7 @@ class Store extends ChangeNotifier {
     _pendingValidUntil = DateTime.tryParse(s['eb_pending_valid_until'] ?? '');
     _reindex();
     if ((int.tryParse(s['rules_version'] ?? '') ?? 1) < defaultRulesVersion) await _upgradeRules();
+    if ((int.tryParse(s['labels_version'] ?? '') ?? 1) < 2) await _relabel();
   }
 
   void _reindex() {
