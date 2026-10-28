@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart' show ChangeNotifier, compute;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -52,6 +54,10 @@ class Store extends ChangeNotifier {
   bool dailyNotif = false;
   int dailyNotifHour = 8;
   int? lastNotifiedBalance;
+
+  /// Opérations en attente (pas encore comptabilisées), remplacées à chaque synchro.
+  final List<Tx> pending = [];
+  bool _anchorIncludesPending = false;
   DateTime? lastNotifiedDay;
   DateTime? bgLastRun;
   String? bgLastResult;
@@ -283,6 +289,10 @@ class Store extends ChangeNotifier {
     dailyNotif = s['daily_notif'] == '1';
     dailyNotifHour = int.tryParse(s['daily_notif_hour'] ?? '') ?? 8;
     lastNotifiedBalance = int.tryParse(s['notif_last_balance'] ?? '');
+    _anchorIncludesPending = s['anchor_incl_pending'] == '1';
+    pending
+      ..clear()
+      ..addAll(_decodePending(s['pending_json']));
     lastNotifiedDay = DateTime.tryParse(s['notif_last_day'] ?? '');
     bgLastRun = DateTime.tryParse(s['bg_last_run'] ?? '');
     bgLastResult = s['bg_last_result'];
@@ -355,8 +365,10 @@ class Store extends ChangeNotifier {
 
   /// Solde estimé en fin de journée [day], à partir du solde de référence et des opérations.
   int? balanceAt(DateTime day) {
-    final a = anchorBalanceCents, d = anchorDate;
-    if (a == null || d == null) return null;
+    final d = anchorDate;
+    final raw = anchorBalanceCents;
+    if (raw == null || d == null) return null;
+    final a = _anchorIncludesPending ? raw - pendingTotal : raw;
     final target = dateOnly(day);
     var v = a;
     for (final t in txs) {
@@ -369,13 +381,59 @@ class Store extends ChangeNotifier {
     return v;
   }
 
-  int? get currentBalance {
+  int get pendingTotal => pending.fold(0, (s, t) => s + t.amountCents);
+
+  /// Solde comptabilisé (sans les opérations en attente).
+  int? get bookedBalance {
     final a = anchorBalanceCents, d = anchorDate;
     if (a == null || d == null) return null;
     var v = a;
     for (final t in txs) {
       if (t.date.isAfter(d)) v += t.amountCents;
     }
+    return _anchorIncludesPending ? v - pendingTotal : v;
+  }
+
+  static List<Tx> _decodePending(String? json) {
+    if (json == null || json.isEmpty) return [];
+    try {
+      final list = jsonDecode(json) as List;
+      var i = 0;
+      return [
+        for (final m in list.whereType<Map>())
+          Tx(
+            id: -(++i),
+            hash: 'pending',
+            date: DateTime.parse('${m['d']}'),
+            amountCents: (m['a'] as num).toInt(),
+            label: '${m['l']}',
+            rawLabel: '${m['r'] ?? m['l']}',
+          ),
+      ];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _savePending(List<ParsedTx> list) async {
+    var i = 0;
+    pending
+      ..clear()
+      ..addAll([
+        for (final p in list)
+          Tx(id: -(++i), hash: 'pending', date: dateOnly(p.date), amountCents: p.amountCents, label: p.label, rawLabel: p.rawLabel),
+      ]);
+    pending.sort((a, b) => b.date.compareTo(a.date));
+    await _setSetting('pending_json',
+        jsonEncode([for (final t in pending) {'d': ymd(t.date), 'a': t.amountCents, 'l': t.label, 'r': t.rawLabel}]));
+  }
+
+  /// Solde actuel, opérations en attente comprises (comme l'affichent les applis bancaires).
+  int? get currentBalance {
+    final b = bookedBalance;
+    return b == null ? null : b + pendingTotal;
+  }
+
     return v;
   }
 
@@ -397,7 +455,7 @@ class Store extends ChangeNotifier {
         for (final t in byDay[d]!) {
           run += t.amountCents;
         }
-        balances[d] = a + run - prefixAtAnchor;
+        balances[d] = a - (_anchorIncludesPending ? pendingTotal : 0) + run - prefixAtAnchor;
       }
     }
     return [
@@ -756,6 +814,8 @@ class Store extends ChangeNotifier {
 
   Future<void> setAnchor(int cents, DateTime date, {bool notify = true}) async {
     anchorBalanceCents = cents;
+    _anchorIncludesPending = false;
+    await _setSetting('anchor_incl_pending', '0');
     anchorDate = dateOnly(date);
     await _setSetting('anchor_balance_cents', '$cents');
     await _setSetting('anchor_date', ymd(anchorDate!));
@@ -972,14 +1032,24 @@ class Store extends ChangeNotifier {
       }
       final occ = <String, int>{};
       final parsed = [for (final j in raw) mapEbTransaction(j, occ)].whereType<ParsedTx>().toList();
-      (int, DateTime, bool)? balance;
+      final pendingOcc = <String, int>{};
+      final pendingTx = [
+        for (final j in raw)
+          if (isEbPending(j)) mapEbTransaction(j, pendingOcc, includePending: true),
+      ].whereType<ParsedTx>().toList();
+      (int, DateTime, bool, bool)? balance;
       try {
         balance = pickBalance(await client.balances(uid));
       } on EbException {
         balance = null;
       }
       final res = ParseResult(parsed, 'Banque', balanceCents: balance?.$1, balanceDate: balance?.$2, balanceSigned: balance?.$3 ?? true);
+      await _savePending(pendingTx);
       final summary = await ingest(res);
+      if (balance != null && summary.balanceUpdated) {
+        _anchorIncludesPending = !balance.$4;
+        await _setSetting('anchor_incl_pending', _anchorIncludesPending ? '1' : '0');
+      }
       ebLastSync = now;
       await _setSetting('eb_last_sync', now.toIso8601String());
       return summary;

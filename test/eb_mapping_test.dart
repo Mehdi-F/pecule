@@ -36,6 +36,19 @@ void main() {
     expect(a.rawLabel, contains('EMPLOYEUR SAS'));
   });
 
+  test('opération en attente : ignorée par défaut, lisible à part', () {
+    final j = {
+      'transaction_amount': {'amount': '10.95'},
+      'credit_debit_indicator': 'DBIT',
+      'status': 'PDNG',
+      'booking_date': '2026-10-28',
+      'remittance_information': ['CB KFC 27/10'],
+    };
+    expect(isEbPending(j), isTrue);
+    expect(mapEbTransaction(j, {}), isNull);
+    expect(mapEbTransaction(j, {}, includePending: true)!.amountCents, -1095);
+  });
+
   test('opération en attente ignorée', () {
     expect(
       mapEbTransaction({
@@ -67,5 +80,9 @@ void main() {
       {'balance_type': 'CLBD', 'balance_amount': {'amount': '312.40'}},
     ])!;
     expect(unsigned.$3, isFalse);
+    expect(unsigned.$4, isTrue); // CLBD : comptabilisé
+    expect(pickBalance([
+      {'balance_type': 'XPCD', 'balance_amount': {'amount': '-5.45'}},
+    ])!.$4, isFalse);
   });
 }

@@ -13,9 +13,14 @@ String? _name(Object? party) => party is Map ? _str(party['name']) : null;
 
 /// Convertit une transaction Enable Banking en opération Pécule.
 /// Les opérations en attente (non comptabilisées) sont ignorées.
-ParsedTx? mapEbTransaction(Map<String, dynamic> j, Map<String, int> occ) {
+/// Opération pas encore comptabilisée (paiement carte en attente, etc.) ?
+bool isEbPending(Map<String, dynamic> j) {
   final status = _str(j['status']);
-  if (status != null && status != 'BOOK') return null;
+  return status != null && status != 'BOOK';
+}
+
+ParsedTx? mapEbTransaction(Map<String, dynamic> j, Map<String, int> occ, {bool includePending = false}) {
+  if (isEbPending(j) && !includePending) return null;
 
   final amount = j['transaction_amount'];
   final raw = amount is Map ? _str(amount['amount']) : null;
@@ -54,9 +59,10 @@ ParsedTx? mapEbTransaction(Map<String, dynamic> j, Map<String, int> occ) {
 const Set<String> _debitWords = {'DBIT', 'DEBIT', 'DEBT', 'D'};
 
 /// Solde le plus fiable parmi ceux renvoyés par la banque (comptabilisé en priorité).
-/// Renvoie (centimes, date, signeFiable). Le signe est fiable si le montant est négatif
-/// ou si un indicateur crédit/débit est fourni ; sinon un montant positif peut être un découvert.
-(int, DateTime, bool)? pickBalance(List<dynamic> balances) {
+/// Renvoie (centimes, date, signeFiable, comptabilisé). Le signe est fiable si le montant est
+/// négatif ou si un indicateur crédit/débit est fourni ; sinon un montant positif peut être un
+/// découvert. « comptabilisé » : le solde exclut les opérations en attente.
+(int, DateTime, bool, bool)? pickBalance(List<dynamic> balances) {
   const order = ['CLBD', 'ITBD', 'XPCD', 'CLAV', 'ITAV', 'OPBD', 'OTHR'];
   Map<String, dynamic>? best;
   var bestRank = 999;
@@ -83,5 +89,7 @@ const Set<String> _debitWords = {'DBIT', 'DEBIT', 'DEBT', 'D'};
   }
   final ref = _str(best['reference_date']) ?? _str(best['last_change_date_time']);
   final date = ref == null ? null : DateTime.tryParse(ref);
-  return (cents, dateOnly(date ?? DateTime.now()), signed);
+  final type = _str(best['balance_type']) ?? 'OTHR';
+  const booked = {'CLBD', 'ITBD', 'OPBD'};
+  return (cents, dateOnly(date ?? DateTime.now()), signed, booked.contains(type));
 }

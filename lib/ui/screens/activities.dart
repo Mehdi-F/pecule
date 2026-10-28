@@ -57,13 +57,82 @@ class ActivitiesScreen extends StatelessWidget {
                     padding: EdgeInsets.fromLTRB(16, 4, 16, 24 + MediaQuery.paddingOf(context).bottom),
                     itemCount: days.length + 1,
                     itemBuilder: (context, i) {
-                      if (i == 0) return _BalanceCard();
+                      if (i == 0) {
+                        return Column(children: [
+                          _BalanceCard(),
+                          if (store.pending.isNotEmpty) const _PendingCard(),
+                        ]);
+                      }
                       return _DayCard(key: ValueKey(days[i - 1].day), day: days[i - 1]);
                     },
                   ),
                 ),
         );
       },
+    );
+  }
+}
+
+/// Opérations pas encore comptabilisées par la banque (paiements carte récents, etc.).
+class _PendingCard extends StatelessWidget {
+  const _PendingCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final list = store.pending;
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+            child: Row(
+              children: [
+                const Icon(Icons.schedule_rounded, size: 18, color: AppColors.muted),
+                const SizedBox(width: 6),
+                const Expanded(child: Text('En attente', style: TextStyle(color: AppColors.muted))),
+                AmountChip(store.pendingTotal),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.line),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+            child: Column(
+              children: [
+                for (final t in list)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(t.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                              Text(shortDate(t.date), style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+                            ],
+                          ),
+                        ),
+                        Text(signedMoney(t.amountCents),
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: t.isExpense ? AppColors.ink : AppColors.green)),
+                      ],
+                    ),
+                  ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text('Elles passeront dans tes opérations (et tes analyses) une fois comptabilisées par la banque.',
+                      style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -92,6 +161,14 @@ class _BalanceCard extends StatelessWidget {
                     color: bal != null && bal < 0 ? AppColors.red : AppColors.ink,
                   ),
                 ),
+                if (store.pending.isNotEmpty && store.bookedBalance != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      'dont ${signedMoney(store.pendingTotal)} en attente · comptabilisé ${money(store.bookedBalance!)}',
+                      style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                    ),
+                  ),
                 if (store.ebLastSync != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
