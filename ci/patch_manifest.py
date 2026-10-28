@@ -10,6 +10,9 @@ s = s.replace('android:label="budget_app"', 'android:label="Pécule"')
 if "android.permission.INTERNET" not in s:
     s = s.replace("<application", '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
 
+if "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in s:
+    s = s.replace("<application", '<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n    <application', 1)
+
 if "android.permission.POST_NOTIFICATIONS" not in s:
     s = s.replace("<application", '<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <application', 1)
 

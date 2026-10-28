@@ -56,5 +56,16 @@ void main() {
     expect(b.$1, -1250);
     expect(b.$2, DateTime(2026, 10, 21));
     expect(pickBalance(const []), isNull);
+    // Découvert renvoyé en positif avec un indicateur de débit.
+    final dbit = pickBalance([
+      {'balance_type': 'CLBD', 'balance_amount': {'amount': '312.40'}, 'credit_debit_indicator': 'DBIT'},
+    ])!;
+    expect(dbit.$1, -31240);
+    expect(dbit.$3, isTrue);
+    // Montant positif sans indicateur : signe non garanti.
+    final unsigned = pickBalance([
+      {'balance_type': 'CLBD', 'balance_amount': {'amount': '312.40'}},
+    ])!;
+    expect(unsigned.$3, isFalse);
   });
 }

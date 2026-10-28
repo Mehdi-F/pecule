@@ -48,12 +48,12 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   late final Future<void> _init = store.init().then((_) => _autoSync());
 
   /// Synchro discrète à l'ouverture si la dernière date de plus de 6 h.
   void _autoSync() {
-    if (store.dailyNotif) scheduleMorning(store.dailyNotifHour).catchError((_) {});
+    if (store.dailyNotif) ensureMorningScheduled().catchError((_) {});
     final last = store.ebLastSync;
     if (!store.bankConnected || store.bankExpired) return;
     if (last != null && DateTime.now().difference(last) < const Duration(hours: 6)) return;
@@ -66,6 +66,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Retour pecule://auth?code=… après validation dans l'appli de la banque.
     _linkSub = _appLinks.uriLinkStream.listen(_onLink, onError: (_) {});
     _appLinks.getInitialLink().then((uri) {
@@ -74,7 +75,17 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    _init.then((_) async {
+      await store.reload();
+      _autoSync();
+    });
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _linkSub?.cancel();
     super.dispose();
   }

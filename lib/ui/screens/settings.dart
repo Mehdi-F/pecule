@@ -77,9 +77,17 @@ class SettingsScreen extends StatelessWidget {
                     title: 'Tester maintenant',
                     subtitle: 'Synchronise et envoie la notification tout de suite',
                     onTap: () async {
-                      await runMorningSync(force: true);
-                      if (context.mounted) toast(context, 'Notification envoyée.');
+                      final r = await runMorningSync(force: true);
+                      if (context.mounted) toast(context, _cap(r));
                     },
+                  ),
+                  const _BatteryItem(),
+                  ListTile(
+                    leading: const Icon(Icons.history_rounded, color: AppColors.muted),
+                    title: const Text('Dernier passage en arrière-plan', style: TextStyle(fontSize: 14)),
+                    subtitle: Text(store.bgLastRun == null
+                        ? 'Pas encore (le premier passage a lieu dans l\'heure qui suit)'
+                        : '${_when(store.bgLastRun!)} · ${store.bgLastResult ?? ''}'),
                   ),
                 ],
                 SwitchListTile(
@@ -164,6 +172,59 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+String _when(DateTime d) {
+  final now = DateTime.now();
+  final hm = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  if (d.year == now.year && d.month == now.month && d.day == now.day) return 'Aujourd\'hui $hm';
+  final y = now.subtract(const Duration(days: 1));
+  if (d.year == y.year && d.month == y.month && d.day == y.day) return 'Hier $hm';
+  return '${shortDate(d)} $hm';
+}
+
+/// Exemption d'optimisation de batterie : indispensable sur certains téléphones (Samsung…)
+/// pour que la synchro du matin tourne vraiment en arrière-plan.
+class _BatteryItem extends StatefulWidget {
+  const _BatteryItem();
+
+  @override
+  State<_BatteryItem> createState() => _BatteryItemState();
+}
+
+class _BatteryItemState extends State<_BatteryItem> {
+  bool? _ok;
+
+  @override
+  void initState() {
+    super.initState();
+    isBatteryUnrestricted().then((v) {
+      if (mounted) setState(() => _ok = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = _ok ?? false;
+    return ListTile(
+      leading: Icon(ok ? Icons.battery_full_rounded : Icons.battery_alert_rounded,
+          color: ok ? AppColors.green : AppColors.red),
+      title: Text(ok ? 'Arrière-plan autorisé' : 'Autoriser en arrière-plan',
+          style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+      subtitle: Text(ok
+          ? 'Pécule n\'est pas limité par l\'économie de batterie'
+          : 'Sinon Android peut bloquer la synchro du matin'),
+      trailing: ok ? null : const Icon(Icons.chevron_right_rounded),
+      onTap: ok
+          ? null
+          : () async {
+              final v = await requestBatteryUnrestricted();
+              if (mounted) setState(() => _ok = v);
+            },
+    );
+  }
+}
+
 Future<void> _toggleDaily(BuildContext context, bool on) async {
   if (!on) {
     await store.setDailyNotif(false);
@@ -177,6 +238,7 @@ Future<void> _toggleDaily(BuildContext context, bool on) async {
   }
   await store.setDailyNotif(true);
   await scheduleMorning(store.dailyNotifHour);
+  if (!await isBatteryUnrestricted()) await requestBatteryUnrestricted();
   if (context.mounted && !store.bankConnected) {
     toast(context, 'Connecte ta banque (Synchro bancaire) pour un solde à jour chaque matin.');
   }

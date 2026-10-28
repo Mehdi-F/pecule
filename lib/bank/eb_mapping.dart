@@ -51,8 +51,12 @@ ParsedTx? mapEbTransaction(Map<String, dynamic> j, Map<String, int> occ) {
   return ParsedTx(p.date, p.amountCents, p.label, p.rawLabel, hash);
 }
 
+const Set<String> _debitWords = {'DBIT', 'DEBIT', 'DEBT', 'D'};
+
 /// Solde le plus fiable parmi ceux renvoyés par la banque (comptabilisé en priorité).
-(int, DateTime)? pickBalance(List<dynamic> balances) {
+/// Renvoie (centimes, date, signeFiable). Le signe est fiable si le montant est négatif
+/// ou si un indicateur crédit/débit est fourni ; sinon un montant positif peut être un découvert.
+(int, DateTime, bool)? pickBalance(List<dynamic> balances) {
   const order = ['CLBD', 'ITBD', 'XPCD', 'CLAV', 'ITAV', 'OPBD', 'OTHR'];
   Map<String, dynamic>? best;
   var bestRank = 999;
@@ -67,9 +71,17 @@ ParsedTx? mapEbTransaction(Map<String, dynamic> j, Map<String, int> occ) {
   }
   if (best == null) return null;
   final amount = best['balance_amount'];
-  final cents = parseAmountCents(amount is Map ? (_str(amount['amount']) ?? '') : '');
+  final raw = amount is Map ? (_str(amount['amount']) ?? '') : '';
+  var cents = parseAmountCents(raw);
   if (cents == null) return null;
+  final indicator = _str(best['credit_debit_indicator']) ??
+      (amount is Map ? _str(amount['credit_debit_indicator']) : null);
+  var signed = cents < 0;
+  if (indicator != null) {
+    signed = true;
+    cents = _debitWords.contains(indicator.toUpperCase()) ? -cents.abs() : cents.abs();
+  }
   final ref = _str(best['reference_date']) ?? _str(best['last_change_date_time']);
   final date = ref == null ? null : DateTime.tryParse(ref);
-  return (cents, dateOnly(date ?? DateTime.now()));
+  return (cents, dateOnly(date ?? DateTime.now()), signed);
 }

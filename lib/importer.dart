@@ -17,7 +17,11 @@ class ParseResult {
   final String format;
   final int? balanceCents;
   final DateTime? balanceDate;
-  const ParseResult(this.txs, this.format, {this.balanceCents, this.balanceDate});
+
+  /// false quand la source donne un solde sans signe fiable (certaines API bancaires
+  /// renvoient un découvert en montant positif) : le signe est alors déduit des opérations.
+  final bool balanceSigned;
+  const ParseResult(this.txs, this.format, {this.balanceCents, this.balanceDate, this.balanceSigned = true});
 }
 
 class ImportException implements Exception {

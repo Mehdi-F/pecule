@@ -52,6 +52,9 @@ class Store extends ChangeNotifier {
   bool dailyNotif = false;
   int dailyNotifHour = 8;
   int? lastNotifiedBalance;
+  DateTime? lastNotifiedDay;
+  DateTime? bgLastRun;
+  String? bgLastResult;
   int? anchorBalanceCents;
   DateTime? anchorDate;
   int? _fallbackExpense;
@@ -244,6 +247,14 @@ class Store extends ChangeNotifier {
     });
   }
 
+  /// Recharge tout depuis la base : la synchro du matin tourne dans un autre isolate et
+  /// écrit directement en base, l'app ouverte en arrière-plan doit donc se remettre à jour.
+  Future<void> reload() async {
+    if (_db == null || syncing) return;
+    await _loadAll();
+    notifyListeners();
+  }
+
   Future<void> _loadAll() async {
     final catRows = await db.query('categories', orderBy: 'id');
     categories
@@ -272,6 +283,9 @@ class Store extends ChangeNotifier {
     dailyNotif = s['daily_notif'] == '1';
     dailyNotifHour = int.tryParse(s['daily_notif_hour'] ?? '') ?? 8;
     lastNotifiedBalance = int.tryParse(s['notif_last_balance'] ?? '');
+    lastNotifiedDay = DateTime.tryParse(s['notif_last_day'] ?? '');
+    bgLastRun = DateTime.tryParse(s['bg_last_run'] ?? '');
+    bgLastResult = s['bg_last_result'];
     anchorBalanceCents = int.tryParse(s['anchor_balance_cents'] ?? '');
     anchorDate = DateTime.tryParse(s['anchor_date'] ?? '');
     _fallbackExpense = int.tryParse(s['fallback_expense'] ?? '');
@@ -338,6 +352,22 @@ class Store extends ChangeNotifier {
 
   List<Link> linksOf(Tx t) =>
       links.where((l) => t.isExpense ? l.expenseId == t.id : l.incomeId == t.id).toList();
+
+  /// Solde estimé en fin de journée [day], à partir du solde de référence et des opérations.
+  int? balanceAt(DateTime day) {
+    final a = anchorBalanceCents, d = anchorDate;
+    if (a == null || d == null) return null;
+    final target = dateOnly(day);
+    var v = a;
+    for (final t in txs) {
+      if (!target.isBefore(d)) {
+        if (t.date.isAfter(d) && !t.date.isAfter(target)) v += t.amountCents;
+      } else {
+        if (t.date.isAfter(target) && !t.date.isAfter(d)) v -= t.amountCents;
+      }
+    }
+    return v;
+  }
 
   int? get currentBalance {
     final a = anchorBalanceCents, d = anchorDate;
@@ -556,7 +586,12 @@ class Store extends ChangeNotifier {
           'label': ptx.label,
           'raw_label': ptx.rawLabel,
           'category_id': catId,
-        });
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        if (id == 0) {
+          // Déjà en base (ajoutée par la synchro en arrière-plan pendant que l'app était ouverte).
+          dup++;
+          continue;
+        }
         added.add(Tx(
           id: id,
           hash: ptx.hash,
@@ -572,7 +607,13 @@ class Store extends ChangeNotifier {
     _reindex();
 
     var balanceUpdated = false;
-    final bal = res.balanceCents, bd = res.balanceDate;
+    var bal = res.balanceCents;
+    final bd = res.balanceDate;
+    if (bal != null && bd != null && !res.balanceSigned && bal > 0) {
+      // Solde sans signe : on garde celui qui prolonge le mieux le solde connu + les opérations.
+      final expected = balanceAt(bd);
+      if (expected != null && (expected + bal).abs() < (expected - bal).abs()) bal = -bal;
+    }
     if (bal != null && bd != null && (anchorDate == null || !bd.isBefore(anchorDate!))) {
       await setAnchor(bal, bd, notify: false);
       balanceUpdated = true;
@@ -678,6 +719,33 @@ class Store extends ChangeNotifier {
   Future<void> setLastNotifiedBalance(int cents) async {
     lastNotifiedBalance = cents;
     await _setSetting('notif_last_balance', '$cents');
+  }
+
+  Future<void> markNotifiedToday() async {
+    lastNotifiedDay = dateOnly(DateTime.now());
+    await _setSetting('notif_last_day', ymd(lastNotifiedDay!));
+  }
+
+  /// Journal minimal des exécutions en arrière-plan (affiché dans Réglages pour le diagnostic).
+  Future<void> logBackground(String result) async {
+    bgLastRun = DateTime.now();
+    bgLastResult = result;
+    await _setSetting('bg_last_run', bgLastRun!.toIso8601String());
+    await _setSetting('bg_last_result', result);
+    notifyListeners();
+  }
+
+  /// Relit les réglages écrits par la tâche de fond (autre isolate) quand l'app revient au premier plan.
+  Future<void> reloadBackgroundState() async {
+    if (_db == null) return;
+    final rows = await db.query('settings', where: 'key IN (?, ?, ?, ?)',
+        whereArgs: ['bg_last_run', 'bg_last_result', 'notif_last_day', 'notif_last_balance']);
+    final s = {for (final m in rows) m['key'] as String: m['value'] as String};
+    bgLastRun = DateTime.tryParse(s['bg_last_run'] ?? '');
+    bgLastResult = s['bg_last_result'];
+    lastNotifiedDay = DateTime.tryParse(s['notif_last_day'] ?? '');
+    lastNotifiedBalance = int.tryParse(s['notif_last_balance'] ?? '');
+    notifyListeners();
   }
 
   Future<void> setBudget(int? cents) async {
@@ -904,13 +972,13 @@ class Store extends ChangeNotifier {
       }
       final occ = <String, int>{};
       final parsed = [for (final j in raw) mapEbTransaction(j, occ)].whereType<ParsedTx>().toList();
-      (int, DateTime)? balance;
+      (int, DateTime, bool)? balance;
       try {
         balance = pickBalance(await client.balances(uid));
       } on EbException {
         balance = null;
       }
-      final res = ParseResult(parsed, 'Banque', balanceCents: balance?.$1, balanceDate: balance?.$2);
+      final res = ParseResult(parsed, 'Banque', balanceCents: balance?.$1, balanceDate: balance?.$2, balanceSigned: balance?.$3 ?? true);
       final summary = await ingest(res);
       ebLastSync = now;
       await _setSetting('eb_last_sync', now.toIso8601String());

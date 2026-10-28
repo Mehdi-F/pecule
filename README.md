@@ -26,7 +26,7 @@ Le plus simple : les **relevés de compte PDF LCL** (appli ou site LCL → Docum
 - **Catégories** : catégorisation automatique par mots-clés (enseignes françaises courantes), changement manuel avec création de règle pour les opérations similaires et les imports suivants.
 - **Exclure des analyses** : pour les virements entre ses propres comptes.
 - **Mois d'analyse** : une opération peut compter dans un autre mois ; option pour compter automatiquement le salaire reçu en fin de mois dans le mois suivant.
-- **Solde chaque matin** : synchro en arrière-plan (WorkManager) et notification du solde et des mouvements de la veille.
+- **Solde chaque matin** : vérification horaire en arrière-plan (WorkManager) ; dès l'heure choisie passée, synchro + notification du solde, une fois par jour. Exemption d'optimisation de batterie proposée, journal du dernier passage dans Réglages.
 
 ## Code
 
