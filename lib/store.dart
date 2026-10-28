@@ -434,9 +434,6 @@ class Store extends ChangeNotifier {
     return b == null ? null : b + pendingTotal;
   }
 
-    return v;
-  }
-
   List<DaySummary> days() {
     final byDay = <DateTime, List<Tx>>{};
     for (final t in txs) {
