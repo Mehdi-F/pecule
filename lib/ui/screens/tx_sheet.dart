@@ -113,7 +113,7 @@ class _TxSheetState extends State<TxSheet> {
 
   Future<void> _delete(Tx t) async {
     final ok = await confirmDialog(context, 'Supprimer l\'opération ?',
-        'Elle disparaîtra de l\'app (pas de ton compte). Un nouvel import du même fichier la réimportera.',
+        'Elle disparaîtra de l\'app (pas de ton compte) et ne reviendra pas aux prochaines synchros.',
         ok: 'Supprimer');
     if (!ok || !mounted) return;
     Navigator.pop(context);

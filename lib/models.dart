@@ -37,7 +37,7 @@ class Category {
 
 class Tx {
   final int id;
-  final String hash;
+  String hash;
   final DateTime date;
   final int amountCents;
   String label;

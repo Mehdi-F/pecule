@@ -6,6 +6,7 @@ import '../import_flow.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'bank_sync.dart';
+import 'duplicates.dart';
 import 'tx_sheet.dart';
 
 class ActivitiesScreen extends StatelessWidget {
@@ -17,6 +18,7 @@ class ActivitiesScreen extends StatelessWidget {
       listenable: store,
       builder: (context, _) {
         final days = store.days();
+        final dupCount = store.suspectedDuplicates().length;
         return Scaffold(
           appBar: AppBar(
             title: const Text('Activités'),
@@ -60,6 +62,25 @@ class ActivitiesScreen extends StatelessWidget {
                       if (i == 0) {
                         return Column(children: [
                           _BalanceCard(),
+                          if (dupCount > 0)
+                            AppCard(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              onTap: () => Navigator.of(context)
+                                  .push(MaterialPageRoute<void>(builder: (_) => const DuplicatesScreen())),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.copy_all_rounded, color: AppColors.red),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      '$dupCount doublon${dupCount > 1 ? 's' : ''} possible${dupCount > 1 ? 's' : ''} à vérifier',
+                                      style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
+                                    ),
+                                  ),
+                                  const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+                                ],
+                              ),
+                            ),
                           if (store.pending.isNotEmpty) const _PendingCard(),
                         ]);
                       }

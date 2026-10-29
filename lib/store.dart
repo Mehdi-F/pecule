@@ -57,6 +57,9 @@ class Store extends ChangeNotifier {
 
   /// Opérations en attente (pas encore comptabilisées), remplacées à chaque synchro.
   final List<Tx> pending = [];
+
+  /// Paires « pas un doublon » confirmées par l'utilisateur (« idA-idB », idA < idB).
+  final Set<String> _dupIgnored = {};
   bool _anchorIncludesPending = false;
   DateTime? lastNotifiedDay;
   DateTime? bgLastRun;
@@ -93,7 +96,7 @@ class Store extends ChangeNotifier {
   Future<void> init() async {
     if (_db != null) return;
     final path = p.join(await getDatabasesPath(), 'pecule.db');
-    _db = await openDatabase(path, version: 2, onCreate: _create, onUpgrade: _upgrade);
+    _db = await openDatabase(path, version: 3, onCreate: _create, onUpgrade: _upgrade);
     await _loadAll();
   }
 
@@ -110,6 +113,7 @@ class Store extends ChangeNotifier {
     await db.execute('CREATE TABLE links(id INTEGER PRIMARY KEY AUTOINCREMENT, expense_id INTEGER NOT NULL, '
         'income_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL)');
     await db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    await db.execute('CREATE TABLE deleted(hash TEXT PRIMARY KEY)');
 
     final ids = await _seedTaxonomy(db);
     await _seedRules(db, ids);
@@ -185,6 +189,10 @@ class Store extends ChangeNotifier {
         await _saveFallbacks(txn, ids);
         await txn.insert('settings', {'key': 'recat_all', 'value': '1'}, conflictAlgorithm: ConflictAlgorithm.replace);
       }
+    }
+    if (oldVersion < 3) {
+      // Opérations supprimées à la main : elles ne doivent pas revenir à la synchro suivante.
+      await db.execute('CREATE TABLE IF NOT EXISTS deleted(hash TEXT PRIMARY KEY)');
     }
   }
 
@@ -290,6 +298,9 @@ class Store extends ChangeNotifier {
     dailyNotifHour = int.tryParse(s['daily_notif_hour'] ?? '') ?? 8;
     lastNotifiedBalance = int.tryParse(s['notif_last_balance'] ?? '');
     _anchorIncludesPending = s['anchor_incl_pending'] == '1';
+    _dupIgnored
+      ..clear()
+      ..addAll((s['dup_ignored'] ?? '').split(',').where((e) => e.isNotEmpty));
     pending
       ..clear()
       ..addAll(_decodePending(s['pending_json']));
@@ -602,7 +613,8 @@ class Store extends ChangeNotifier {
   /// - même montant à ±3 jours d'une opération venue de l'autre source
   ///   (relevé importé d'un côté, synchro bancaire de l'autre).
   Future<ImportSummary> ingest(ParseResult res) async {
-    final existing = txs.map((t) => t.hash).toSet();
+    final existing = txs.map((t) => t.hash).toSet()
+      ..addAll((await db.query('deleted')).map((m) => m['hash'] as String));
     final crossSource = <int, List<Tx>>{};
     for (final t in txs) {
       crossSource.putIfAbsent(t.amountCents, () => []).add(t);
@@ -611,6 +623,8 @@ class Store extends ChangeNotifier {
     final sorted = sortedRules;
     var dup = 0;
     final added = <Tx>[];
+    final batchHashes = res.txs.map((p) => p.hash).toSet();
+    final cover = res.coverFrom;
     await db.transaction((txn) async {
       for (final ptx in res.txs) {
         if (!existing.add(ptx.hash)) {
@@ -618,6 +632,29 @@ class Store extends ChangeNotifier {
           continue;
         }
         final incomingBank = _fromBank(ptx.hash);
+        if (incomingBank && cover != null) {
+          // La banque a pu changer l'identifiant d'une opération déjà connue : même montant, même
+          // libellé, date proche, et l'ancien identifiant n'est plus dans la réponse.
+          final label = normalize(ptx.label);
+          Tx? same;
+          var bestGap = 3;
+          for (final t in crossSource[ptx.amountCents] ?? const <Tx>[]) {
+            if (!_fromBank(t.hash) || matched.contains(t.id) || batchHashes.contains(t.hash)) continue;
+            if (t.date.isBefore(cover) || normalize(t.label) != label) continue;
+            final gap = t.date.difference(dateOnly(ptx.date)).inDays.abs();
+            if (gap < bestGap) {
+              bestGap = gap;
+              same = t;
+            }
+          }
+          if (same != null) {
+            matched.add(same.id);
+            same.hash = ptx.hash;
+            await txn.update('transactions', {'hash': ptx.hash}, where: 'id = ?', whereArgs: [same.id]);
+            dup++;
+            continue;
+          }
+        }
         Tx? twin;
         var bestGap = 4;
         for (final t in crossSource[ptx.amountCents] ?? const <Tx>[]) {
@@ -746,7 +783,60 @@ class Store extends ChangeNotifier {
     notifyListeners();
   }
 
+  static String _pairKey(Tx a, Tx b) => a.id < b.id ? '${a.id}-${b.id}' : '${b.id}-${a.id}';
+
+  /// Doublons possibles : même montant à 2 jours d'écart au plus, et soit le même libellé,
+  /// soit des sources différentes (relevé importé d'un côté, synchro bancaire de l'autre).
+  /// (Deux achats identiques le même jour sont possibles : c'est à l'utilisateur de trancher.)
+  List<(Tx, Tx)> suspectedDuplicates() {
+    final byAmount = <int, List<Tx>>{};
+    for (final t in txs) {
+      byAmount.putIfAbsent(t.amountCents, () => []).add(t);
+    }
+    final out = <(Tx, Tx)>[];
+    final used = <int>{};
+    for (final group in byAmount.values) {
+      if (group.length < 2) continue;
+      group.sort((a, b) => a.date.compareTo(b.date));
+      for (var i = 0; i < group.length; i++) {
+        final a = group[i];
+        if (used.contains(a.id)) continue;
+        for (var j = i + 1; j < group.length; j++) {
+          final b = group[j];
+          if (b.date.difference(a.date).inDays > 2) break;
+          if (used.contains(b.id) || _dupIgnored.contains(_pairKey(a, b))) continue;
+          final sameLabel = normalize(a.label) == normalize(b.label);
+          final otherSource = _fromBank(a.hash) != _fromBank(b.hash);
+          if (!sameLabel && !otherSource) continue;
+          out.add((a, b));
+          used
+            ..add(a.id)
+            ..add(b.id);
+          break;
+        }
+      }
+    }
+    out.sort((x, y) => y.$1.date.compareTo(x.$1.date));
+    return out;
+  }
+
+  Future<void> ignoreDuplicate(Tx a, Tx b) async {
+    _dupIgnored.add(_pairKey(a, b));
+    await _setSetting('dup_ignored', _dupIgnored.join(','));
+    notifyListeners();
+  }
+
+  /// Supprime l'exemplaire en trop en gardant celui qui porte le plus d'informations
+  /// (catégorie choisie à la main, note, remboursements liés).
+  Future<void> resolveDuplicate(Tx a, Tx b) async {
+    int score(Tx t) =>
+        (t.categoryManual ? 4 : 0) + (t.note.isNotEmpty ? 2 : 0) + (linksOf(t).isNotEmpty ? 8 : 0) + (t.monthOverride != null ? 1 : 0);
+    final drop = score(a) >= score(b) ? b : a;
+    await deleteTx(drop);
+  }
+
   Future<void> deleteTx(Tx t) async {
+    await db.insert('deleted', {'hash': t.hash}, conflictAlgorithm: ConflictAlgorithm.ignore);
     await db.delete('links', where: 'expense_id = ? OR income_id = ?', whereArgs: [t.id, t.id]);
     await db.delete('transactions', where: 'id = ?', whereArgs: [t.id]);
     links.removeWhere((l) => l.expenseId == t.id || l.incomeId == t.id);
@@ -837,6 +927,7 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> clearTransactions() async {
+    await db.delete('deleted');
     await db.delete('links');
     await db.delete('transactions');
     await _setSetting('anchor_balance_cents', null);
@@ -1016,16 +1107,20 @@ class Store extends ChangeNotifier {
       final now = DateTime.now();
       final last = ebLastSync;
       List<Map<String, dynamic>> raw;
+      DateTime from;
       if (last == null) {
         try {
-          raw = await client.transactions(uid, now.subtract(const Duration(days: 365)));
+          from = now.subtract(const Duration(days: 365));
+          raw = await client.transactions(uid, from);
         } on EbException catch (e) {
           // Seulement si la banque refuse un an d'historique (pas sur une coupure réseau).
           if (e.needsReconnect || e.isNetwork) rethrow;
-          raw = await client.transactions(uid, now.subtract(const Duration(days: 89)));
+          from = now.subtract(const Duration(days: 89));
+          raw = await client.transactions(uid, from);
         }
       } else {
-        raw = await client.transactions(uid, last.subtract(const Duration(days: 10)));
+        from = last.subtract(const Duration(days: 10));
+        raw = await client.transactions(uid, from);
       }
       final occ = <String, int>{};
       final parsed = [for (final j in raw) mapEbTransaction(j, occ)].whereType<ParsedTx>().toList();
@@ -1034,13 +1129,23 @@ class Store extends ChangeNotifier {
         for (final j in raw)
           if (isEbPending(j)) mapEbTransaction(j, pendingOcc, includePending: true),
       ].whereType<ParsedTx>().toList();
+      // Une opération à la fois « en attente » et comptabilisée dans la même réponse ne compte qu'une fois.
+      final bookedPool = [...parsed];
+      pendingTx.removeWhere((p) {
+        final i = bookedPool.indexWhere((b) =>
+            b.amountCents == p.amountCents && b.date.difference(p.date).inDays.abs() <= 3);
+        if (i < 0) return false;
+        bookedPool.removeAt(i);
+        return true;
+      });
       (int, DateTime, bool, bool)? balance;
       try {
         balance = pickBalance(await client.balances(uid));
       } on EbException {
         balance = null;
       }
-      final res = ParseResult(parsed, 'Banque', balanceCents: balance?.$1, balanceDate: balance?.$2, balanceSigned: balance?.$3 ?? true);
+      final res = ParseResult(parsed, 'Banque',
+          balanceCents: balance?.$1, balanceDate: balance?.$2, balanceSigned: balance?.$3 ?? true, coverFrom: dateOnly(from));
       await _savePending(pendingTx);
       final summary = await ingest(res);
       if (balance != null && summary.balanceUpdated) {

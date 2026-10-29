@@ -7,6 +7,7 @@ import '../import_flow.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'bank_sync.dart';
+import 'duplicates.dart';
 import 'tx_sheet.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -120,6 +121,12 @@ class SettingsScreen extends StatelessWidget {
                   title: 'Nouvelle catégorie',
                   subtitle: '${store.categories.length} catégories',
                   onTap: () => createCategoryDialog(context),
+                ),
+                _Item(
+                  icon: Icons.copy_all_rounded,
+                  title: 'Doublons possibles',
+                  subtitle: '${store.suspectedDuplicates().length} à vérifier',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DuplicatesScreen())),
                 ),
                 _Item(
                   icon: Icons.rule_rounded,

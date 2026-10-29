@@ -21,7 +21,12 @@ class ParseResult {
   /// false quand la source donne un solde sans signe fiable (certaines API bancaires
   /// renvoient un découvert en montant positif) : le signe est alors déduit des opérations.
   final bool balanceSigned;
-  const ParseResult(this.txs, this.format, {this.balanceCents, this.balanceDate, this.balanceSigned = true});
+
+  /// Synchro bancaire : date de début de la période renvoyée. Toute opération bancaire déjà
+  /// connue dans cette période et absente de la réponse a forcément changé d'identifiant.
+  final DateTime? coverFrom;
+  const ParseResult(this.txs, this.format,
+      {this.balanceCents, this.balanceDate, this.balanceSigned = true, this.coverFrom});
 }
 
 class ImportException implements Exception {
